@@ -6,8 +6,8 @@ System monitor written in Rust using terminal user interface (TUI). Fast, nice-l
 ## Build
 In suitable directory, run
 ```
-> git clone https://github.com/mabognar/xtop
-> cd xtop
-> cargo install --path .
-> xtop
+git clone https://github.com/mabognar/xtop
+cd xtop
+cargo install --path .
+xtop
 ```
