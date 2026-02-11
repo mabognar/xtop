@@ -324,7 +324,8 @@ fn main() -> Result<(), io::Error> {
                     Cell::from(Line::from(p.pid().to_string()).right_aligned()),
                     Cell::from(p.name().to_string_lossy().to_string()),
                     Cell::from(Line::from(format!("{:.1} MB", p.memory() as f64 / 1_048_576.0)).right_aligned()),
-                    Cell::from(Line::from(format!("{:.1}%", p.cpu_usage().min(100.0))).right_aligned()),
+                    Cell::from(Line::from(format!("{:.1}%", p.cpu_usage())).right_aligned()),
+                    // Cell::from(Line::from(format!("{:.1}%", p.cpu_usage().min(100.0))).right_aligned()),
                 ])
             }).collect();
 
