@@ -1,0 +1,404 @@
+use std::fs::read_to_string;
+use crossterm::{
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use crossterm::event::{KeyModifiers};
+
+
+use ratatui::{
+    backend::CrosstermBackend,
+    layout::{Constraint, Direction, Layout},
+    widgets::{Block, Borders, Paragraph, Table, Cell, Row, TableState},
+    Terminal,
+};
+use std::io;
+use ratatui::prelude::{Line, Style};
+use ratatui::style::{Color, Styled};
+use sysinfo::{Component, Components, Disks, Networks, System, CpuRefreshKind, RefreshKind, Process, ProcessesToUpdate, Pid};
+use sysinfo::{Cpu};
+use std::collections::HashMap;
+use crossterm::event::Event::Key;
+use crossterm::event::{KeyEvent, KeyEventState};
+use ratatui::macros::row;
+use ratatui::style::Color::{Blue, Cyan, Gray, Green, LightBlue, LightCyan, LightGreen, LightRed, LightYellow, Red, Yellow};
+use ratatui::style::palette::material::ORANGE;
+
+struct App {
+    state: TableState,
+    sort_column: usize,
+    sort_decending: bool,
+}
+
+impl App {
+    fn new() {
+        let mut s = System::new_all();
+        s.refresh_processes(ProcessesToUpdate::All, true);
+        let mut process_list: Vec<_> = s.processes().values().collect();
+
+        // default sort via cpu
+        process_list.sort_by(|a, b| a.cpu_usage().total_cmp(&b.clone().cpu_usage()));
+    }
+
+    fn sort_pid() {
+        let mut s = System::new_all();
+        s.refresh_processes(ProcessesToUpdate::All, true);
+        let mut process_list: Vec<_> = s.processes().values().collect();
+        process_list.sort_by(|a, b| a.pid().cmp(&b.clone().pid()));
+    }
+
+    fn sort_name() {
+        let mut s = System::new_all();
+        s.refresh_processes(ProcessesToUpdate::All, true);
+        let mut process_list: Vec<_> = s.processes().values().collect();
+        process_list.sort_by(|a, b| a.name().cmp(&b.clone().name()));
+    }
+
+    fn sort_memory() {
+        let mut s = System::new_all();
+        s.refresh_processes(ProcessesToUpdate::All, true);
+        let mut process_list: Vec<_> = s.processes().values().collect();
+        process_list.sort_by(|a, b| a.memory().cmp(&b.clone().memory()));
+    }
+}
+
+
+fn main() -> Result<(), io::Error> {
+
+    let mut sys = System::new_all();
+    sys.refresh_all();
+
+    let mut app = App::new();
+
+    let components = Components::new_with_refreshed_list();
+
+    let mut networks = Networks::new_with_refreshed_list();
+
+    let mut table_state = TableState::default();
+    table_state.select(Some(0)); // Start with the first row selected
+
+    let mut sys = System::new_all();
+
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+
+
+    // let mut table_state = TableState::default();
+    // *table_state.offset_mut() = 1; // display the second row and onwards
+    // table_state.select(Some(3)); // select the forth row (0-indexed)
+    // table_state.select_column(Some(2)); // select the third column (0-indexed)
+
+
+
+    ////////////////////
+    // 1. Setup terminal
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+
+
+    /////////////////////////
+    // 2. Run the render loop
+    loop {
+        terminal.draw(|f| {
+            let size = f.size();
+
+            // std::thread::sleep(core::time::Duration::from_millis(500));
+
+
+            // Split the screen vertically into 2 chunks (Top and Bottom)
+            let horizontal_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(size);
+
+            // Split the top-left chunk vertically
+            let left_panel = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
+                .split(horizontal_chunks[0]);
+
+            // Split the bottom-left chunk horizontally (C and D)
+            let bottom_left = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(left_panel[1]);
+
+            let inner_layout = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints(vec![
+                    Constraint::Percentage(50),
+                    Constraint::Percentage(50),
+                ])
+                .split(left_panel[1]);
+
+
+
+            // CPU
+            // sys.refresh_cpu_all();
+            let components = Components::new_with_refreshed_list();
+
+            let numeric_data = vec![
+                (0,sys.cpus().get(0).unwrap().cpu_usage(),
+                    components.get(0).unwrap().temperature().unwrap(),
+                 1,sys.cpus().get(1).unwrap().cpu_usage(),
+                 components.get(1).unwrap().temperature().unwrap()),
+                (2,sys.cpus().get(2).unwrap().cpu_usage(),
+                    components.get(2).unwrap().temperature().unwrap(),
+                 3,sys.cpus().get(3).unwrap().cpu_usage(),
+                 components.get(3).unwrap().temperature().unwrap()),
+                (4,sys.cpus().get(4).unwrap().cpu_usage(),
+                    components.get(4).unwrap().temperature().unwrap(),
+                 5,sys.cpus().get(5).unwrap().cpu_usage(),
+                 components.get(5).unwrap().temperature().unwrap()),
+                (6,sys.cpus().get(6).unwrap().cpu_usage(),
+                    components.get(6).unwrap().temperature().unwrap(),
+                 7,sys.cpus().get(7).unwrap().cpu_usage(),
+                 components.get(7).unwrap().temperature().unwrap()),
+                (8,sys.cpus().get(8).unwrap().cpu_usage(),
+                    components.get(8).unwrap().temperature().unwrap(),
+                 9,sys.cpus().get(9).unwrap().cpu_usage(),
+                 components.get(9).unwrap().temperature().unwrap()),
+            ];
+
+            let rows = numeric_data.iter().map(|&(core,usage,ref temp,core2,usage2,ref temp2)| {
+                let mut cusage = 0.0f32;
+                let mut cusage2 = 0.0f32;
+                cusage = sys.cpus().get(core).unwrap().cpu_usage();
+                cusage2 = sys.cpus().get(core2).unwrap().cpu_usage();
+                // ctemp = components.get(0).unwrap().temperature().unwrap();
+                let ccolor = match cusage {
+                    0.0..=5.0 => Color::Indexed(192),
+                    5.0..=20.0 => Color::Indexed(192),
+                    20.0..=60.0 => Color::Indexed(192),
+                    60.0..=80.0 => Color::Indexed(192),
+                    80.0..=100.0 => Color::Indexed(192),
+                    _ => {Gray}
+                };
+                let ccolor2 = match cusage2 {
+                    0.0..=5.0 => Color::Indexed(192),
+                    5.0..=20.0 => Color::Indexed(192),
+                    20.0..=60.0 => Color::Indexed(192),
+                    60.0..=80.0 => Color::Indexed(192),
+                    80.0..=100.0 => Color::Indexed(192),
+                    _ => {Gray}
+                };
+                Row::new(vec![
+                    Cell::from(format!("{:.0}",core)).style(Style::default()),
+                    // Cell::from(core).style(Style::default().white()),
+                    Cell::from(format!("{:.1}",usage)).style(Style::default().
+                        fg(ccolor)),
+                    Cell::from(format!("{:.1}",temp)).style(Style::default()),
+                    Cell::from(format!("{:.0}",core2)).style(Style::default()),
+                    // Cell::from(core2).style(Style::default().white()),
+                    Cell::from(format!("{:.1}",usage2)).style(Style::default().
+                        fg(ccolor2)),
+                    Cell::from(format!("{:.1}",temp2)).style(Style::default()),
+                ])
+            });
+
+            let widths = [
+                Constraint::Percentage(10),
+                Constraint::Percentage(20),
+                Constraint::Percentage(20),
+                Constraint::Percentage(10),
+                Constraint::Percentage(20),
+                Constraint::Percentage(20),
+            ];
+
+            let table = Table::new(rows,widths)
+                .block(Block::default().borders(Borders::ALL))
+                .header(Row::new(vec!["Core", "Usage", "Temp", "Core", "Usage", "Temp"])
+                    .style(ratatui::style::Style::default().bold().white()))
+                .column_spacing(1)
+                .block(Block::default().title(" Core Information ").title_style(Color::Rgb(100,150,100))
+                    .borders(Borders::ALL).border_style(Color::Rgb(100,150,100)));
+
+
+            f.render_widget(table, left_panel[0]);
+
+
+            /////////
+            // Memory
+            // sys.refresh_all();
+            networks.refresh(true);
+            // sys.refresh_memory();
+            f.render_widget(Paragraph::new(format!(
+                "Total:      {}\n\
+                Used:       {}\n\
+                Available:  {}\n\
+                Total swap: {}\n\
+                Used swap:  {}",
+                sys.total_memory(),
+                sys.used_memory(),
+                sys.available_memory(),
+                sys.total_swap(),
+                sys.used_swap()))
+                                .block(Block::default()
+                                    .borders(Borders::ALL)
+                                    .title(" Memory ")
+                                           .title_style(Color::Rgb(100,150,100))
+                                           .border_style(Color::Rgb(100,150,100))), inner_layout[0]);
+
+            f.render_widget(Paragraph::new(format!(
+                "interface name: {}\n\
+                    Received:    {}\n\
+                    Transmitted: {}\n\
+                    Total received:    {}\n\
+                    Total transmitted: {}",
+                "en0",
+                networks.get("en0").unwrap().received(),
+                networks.get("en0").unwrap().transmitted(),
+                networks.get("en0").unwrap().total_received(),
+                networks.get("en0").unwrap().total_transmitted()))
+                                .block(Block::default()
+                                    .borders(Borders::ALL)
+                                    .title(" Network ")
+                                           .title_style(Color::Rgb(100,150,100))
+                                           .border_style(Color::Rgb(100,150,100))), inner_layout[1]);
+
+
+            ////////////
+            // Processes
+            let mut s = System::new_all();
+            s.refresh_processes(ProcessesToUpdate::All, true);
+            let mut process_list: Vec<_> = sys.processes().values().collect();
+            // let process_count = process_list.len() as i32;
+
+            process_list.sort_by(|a, b| a.pid().cmp(&b.clone().pid()));
+            // process_list.sort_by(|a, b| a.memory().cmp(&b.clone().memory()));
+            // process_list.sort_by(|a, b| a.name().cmp(&b.clone().name()));
+            // process_list.sort_by(|a, b| a.cpu_usage().total_cmp(&b.clone().cpu_usage()));
+            // process_list.reverse();
+
+            // if descending {
+            //     data.reverse();
+            // }
+
+
+
+            // // Convert sorted data to rows
+            // let rows = process_list.iter().map(|user| {
+            //     Row::new(vec![
+            //         Cell::from(user.pid().clone()),
+            //         Cell::from(user.name().to_string()),
+            //     ])
+            // });
+
+
+            let rows: Vec<Row> = process_list.iter().map(|p| {
+                Row::new(vec![
+                    Cell::from(p.pid().to_string()),
+                    Cell::from(p.name().to_string_lossy().to_string()),
+                    Cell::from(format!("{:.1} MB", p.memory() as f64 / 1_048_576.0)),
+                    Cell::from(format!("{:.1}%", p.cpu_usage())),
+                ])
+            }).collect();
+            // let rows: Vec<Row> = sys
+            //     .processes()
+            //     .values()
+            //     .take(bottom_left[1].height as usize) // Basic pagination/limit
+            //     .map(|p| {
+            //         Row::new(vec![
+            //             Cell::from(Line::from(p.pid().to_string()).right_aligned()),
+            //             Cell::from(Line::from(p.name().to_string_lossy()).left_aligned()),
+            //             Cell::from(Line::from(format!("{:.1} MB", p.memory() as f64 / 1_048_576.0)).right_aligned()),
+            //             Cell::from(Line::from(format!("{:.1}%", p.cpu_usage() as f64)).right_aligned()),
+            //         ])
+            //     })
+            // .collect();
+
+            let table = Table::new(
+                rows,
+                [Constraint::Length(8), Constraint::Min(20), Constraint::Length(12), Constraint::Length(8)],
+            )
+                .header(Row::new(vec!["PID", "Name", "Memory", "CPU"]).style(Style::default().bold()))
+                .highlight_style(Style::default().bg(Color::DarkGray)) // Visual cue for selection
+                .highlight_symbol(">> ")
+                .block(Block::default().title(" System Processes ").borders(Borders::ALL));
+
+            // Use render_stateful_widget to link the table with your persistent state
+            f.render_stateful_widget(table, horizontal_chunks[1], &mut table_state);
+        })?;
+
+        //     let table = Table::new(
+        //         rows,
+        //         [Constraint::Length(6), Constraint::Min(20), Constraint::Length(10), Constraint::Length(5)],
+        //     )
+        //         .header(Row::new(vec!["PID", "Name", "Memory", "CPU"])
+        //             .style(ratatui::style::Style::default().bold()))
+        //         .block(Block::default().title(" System Processes ").title_style(Color::Rgb(100,150,100)).borders(Borders::ALL).border_style(Color::Rgb(100,150,100)));
+        //
+        //     let rects = f.area();
+        //
+        //     // *table_state.offset_mut() = 1; // display the second row and onwards
+        //     // table_state.select(Some(3)); // select the forth row (0-indexed)
+        //     // table_state.select_column(Some(2)); // select the third column (0-indexed)
+        //
+        //     f.render_stateful_widget(table, horizontal_chunks[1], &mut table_state);
+        //     // f.render_widget(table,  horizontal_chunks[1]);
+        //
+        // })?;
+
+
+        ///////////////////////////////////
+        // 3. Simple input handling to exit
+        if event::poll(std::time::Duration::from_millis(100))? {
+            let mut process_list: Vec<_> = sys.processes().values().collect();
+            let mut process_count = process_list.len();
+
+            let mut app = App::sort_memory();
+
+            if let Event::Key(key) = event::read()? {
+                match key.code {
+                    KeyCode::Char('q') => break,
+                    KeyCode::Down => {
+                        let i = match table_state.selected() {
+                            Some(i) => if i >= process_count - 1 { 0 } else { i + 1 },
+                            // Some(i) => if i >= process_count - 1 { 0 } else { i + 1 },
+                            None => 0,
+                        };
+                        table_state.select(Some(i));
+                    }
+                    KeyCode::Up => {
+                        let i = match table_state.selected() {
+                            Some(i) => if i == 0 { process_count - 1 } else { i - 1 },
+                            // Some(i) => if i == 0 { process_count - 1 } else { i - 1 },
+                            None => 0,
+                        };
+                        table_state.select(Some(i));
+                    }
+                    KeyCode::Char('m') => App::sort_memory(),
+                    KeyCode::Char('n') => App::sort_name(),
+                    KeyCode::Char('l') => {table_state.select_last_column()},
+                    _ => {}
+                }
+            }
+        }
+        // if event::poll(std::time::Duration::from_millis(1000))? {
+        //     if let Event::Key(key) = event::read()? {
+        //         if let KeyCode::Char('q') = key.code {
+        //             break;
+        //         }
+        //     }
+        // }
+    }
+
+    // 4. Restore terminal
+    disable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
+    terminal.show_cursor()?;
+
+    Ok(())
+}
+
