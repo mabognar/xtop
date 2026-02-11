@@ -409,7 +409,7 @@ fn main() -> Result<(), io::Error> {
                     processes_rows,
                     [Constraint::Fill(1), Constraint::Fill(3)])
                     .row_highlight_style(Style::default().bg(Color::Rgb(100,100,50))) // Visual cue for selection
-                    .block(Block::default().title(Line::from(" Processes Details ").style(Style::default().bold()))
+                    .block(Block::default().title(Line::from(" Process Details ").style(Style::default().bold()))
                         .borders(Borders::ALL)
                         .border_style(Color::Rgb(150,150,100))
                         .title_style(Color::Rgb(200,200,100))
