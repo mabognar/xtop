@@ -114,7 +114,7 @@ fn main() -> Result<(), io::Error> {
                     .title_style(Color::Rgb(200,200,100))
                     .borders(Borders::ALL)
                     .border_style(Color::Rgb(200,100,100))
-                    .title(Line::from(" Type to search, escape to exit ")));
+                    .title(Line::from(" Type to search, escape to exit ").style(Style::default().bold())));
             f.render_widget(search_bar, right_panel[0]);
 
 
