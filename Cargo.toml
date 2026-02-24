@@ -1,11 +1,11 @@
 [package]
 name = "xtop"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 license = "MIT"
 keywords = ["system", "monitor", "information"]
 categories = ["command-line-utilities"]
-description = "System monitor written in Rust using terminal user interface (TUI). Fast, nice-looking, informative, and easy to use."
+description = "System monitor written in Rust using terminal user interface (TUI). Fast, efficient, informative, and easy to use."
 readme = true
 documentation = "https://docs.rs/xtop"
 repository = "https://github.com/mabognar/xtop"
@@ -14,3 +14,4 @@ repository = "https://github.com/mabognar/xtop"
 ratatui = "0.30.0"
 crossterm = "0.29.0"
 sysinfo = "0.38.2"
+
