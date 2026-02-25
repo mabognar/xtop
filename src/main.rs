@@ -357,13 +357,22 @@ fn main() -> Result<(), io::Error> {
                     ])
                 }).collect();
 
+                let nrows = rows.len();
+                let mut srow = table_state.selected().unwrap_or(0);
+                if nrows == 0 { srow = 0 }
+                if srow < nrows {
+                    srow = srow + 1;
+                }
+
                 let table = Table::new(
                     rows,
                     [Constraint::Length(6), Constraint::Min(18), Constraint::Length(10), Constraint::Length(6)])
                     .header(Row::new(vec![" (p)id", "(n)ame", "  (m)emory", " (c)pu"])
                         .style(Style::default().bold().white()))
                     .row_highlight_style(Style::default().bg(Color::Rgb(100,100,50)))
-                    .block(Block::default().title(Line::from(" System Processes ").style(Style::default().bold()))
+                    .block(Block::default().title(Line::from(format!(" System Processes [{}/{}] ", srow, nrows))
+                        .style(Style::default().bold())
+                        .left_aligned())
                         .borders(Borders::ALL)
                         .border_style(Color::Rgb(150,150,100))
                         .title_style(Color::Rgb(200,200,100))
@@ -497,16 +506,17 @@ fn main() -> Result<(), io::Error> {
                         KeyCode::Down => {
                             let count = s.processes().len();
                             let i = match table_state.selected() {
-                                Some(i) => if i >= count - 1 { 0 } else { i + 1 },
+                                Some(i) => if i >= count - 1 { count - 1 } else { i + 1 },
                                 None => 0,
                             };
                             table_state.select(Some(i));
                         }
 
                         KeyCode::Up => {
-                            let count = s.processes().len();
+                            // let count = s.processes().len();
                             let i = match table_state.selected() {
-                                Some(i) => if i == 0 { count - 1 } else { i - 1 },
+                                Some(i) => if i == 0 { 0 } else { i - 1 },
+                                // Some(i) => if i == 0 { count - 1 } else { i - 1 },
                                 None => 0,
                             };
                             table_state.select(Some(i));
@@ -595,16 +605,16 @@ fn main() -> Result<(), io::Error> {
                         KeyCode::Down => {
                             let count = s.processes().len();
                             let i = match table_state.selected() {
-                                Some(i) => if i >= count - 1 { 0 } else { i + 1 },
+                                Some(i) => if i >= count - 1 { count - 1 } else { i + 1 },
                                 None => 0,
                             };
                             table_state.select(Some(i));
                         }
 
                         KeyCode::Up => {
-                            let count = s.processes().len();
+                            // let count = s.processes().len();
                             let i = match table_state.selected() {
-                                Some(i) => if i == 0 { count - 1 } else { i - 1 },
+                                Some(i) => if i == 0 { 0 } else { i - 1 },
                                 None => 0,
                             };
                             table_state.select(Some(i));
