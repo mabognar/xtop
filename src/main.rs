@@ -12,7 +12,7 @@ use ratatui::{backend::CrosstermBackend,
 use ratatui::layout::Rect;
 use ratatui::prelude::{Line, Style};
 use ratatui::style::{Color};
-use ratatui::widgets::{LineGauge, Paragraph};
+use ratatui::widgets::{BorderType, Clear, LineGauge, Paragraph};
 
 use std::{io};
 use std::time::Duration;
@@ -43,6 +43,8 @@ fn main() -> Result<(), io::Error> {
 
     let mut editing = false;
     let mut edit_integer = 0;
+
+    let mut show_help = false;
 
     // Setup terminal
     enable_raw_mode()?;
@@ -344,19 +346,20 @@ fn main() -> Result<(), io::Error> {
                         .title_bottom(Line::from(vec![
                             Span::styled(" f", Style::default().fg(Color::LightRed)),
                             Span::styled("irst", Style::default().fg(col_menu)),
-                            Span::styled(" | ", Style::default().fg(Color::Rgb(60,60,60))),
+                            Span::styled("|", Style::default().fg(Color::Rgb(60,60,60))),
                             Span::styled("l", Style::default().fg(Color::LightRed)),
                             Span::styled("ast", Style::default().fg(col_menu)),
-                            Span::styled(" | ", Style::default().fg(Color::Rgb(60,60,60))),
+                            Span::styled("|", Style::default().fg(Color::Rgb(60,60,60))),
                             Span::styled("↵", Style::default().fg(Color::LightRed)),
                             Span::styled("Info", Style::default().fg(col_menu)),
-                            Span::styled(" | ", Style::default().fg(Color::Rgb(60,60,60))),
+                            Span::styled("|", Style::default().fg(Color::Rgb(60,60,60))),
                             Span::styled("s", Style::default().fg(Color::LightRed)),
                             Span::styled("earch", Style::default().fg(col_menu)),
-                            Span::styled(" | ", Style::default().fg(Color::Rgb(60,60,60))),
+                            Span::styled("|", Style::default().fg(Color::Rgb(60,60,60))),
                             Span::styled("q", Style::default().fg(Color::LightRed)),
-                            Span::styled("uit ", Style::default().fg(col_menu)),
-
+                            Span::styled("uit", Style::default().fg(col_menu)),
+                            Span::styled("|", Style::default().fg(Color::Rgb(60,60,60))),
+                            Span::styled("? ", Style::default().fg(Color::LightRed)),
                         ]
 
                         ))
@@ -438,6 +441,51 @@ fn main() -> Result<(), io::Error> {
 
                     f.render_widget(selected_process_table, right_panel[2]);
 
+                }
+
+                if show_help {
+                    let area = centered_rect(f.area()); // 60% width, 20% height
+                    // let area = centered_rect(60, 20, f.area()); // 60% width, 20% height
+                    let help_text = vec![
+                        Line::from(Span::styled(" https://github.com/mabognar ", Color::White)),
+                        Line::from(vec![Span::styled(" https://crates.io/crates/xtop ", Color::White)]),
+                        // Line::from(vec![Span::raw(" To close, type "),
+                        //                 Span::styled("? ", Color::LightRed)])
+                    ];
+
+                    const PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
+                    let block = Block::default()
+                        .title(Line::from(vec![Span::raw(" xtop "),
+                                               Span::raw(format!("({}) ",PKG_VERSION))]))
+                        .title_bottom(Line::from(vec![Span::raw(" To close, type "),
+                                                      Span::styled("? ", Color::LightRed)]))
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Rounded)
+                        .border_style(Style::default().fg(Color::Rgb(200,150,100))
+                        .bg(Color::Black));
+
+                    let help_para = Paragraph::new(help_text)
+                        .block(block)
+                        .wrap(ratatui::widgets::Wrap { trim: true });
+
+                    f.render_widget(Clear, area); // This clears the area under the popup
+                    f.render_widget(help_para, area);
+                }
+
+                fn centered_rect(r: ratatui::layout::Rect) -> ratatui::layout::Rect {
+                    let popup_layout = Layout::vertical([
+                        Constraint::Fill(1),
+                        Constraint::Length(4),
+                        Constraint::Fill(1),
+                    ])
+                        .split(r);
+
+                    Layout::horizontal([
+                        Constraint::Fill(1),
+                        Constraint::Length(33),
+                        Constraint::Fill(1),
+                    ])
+                        .split(popup_layout[1])[1]
                 }
 
             } // terminal_size_ok
@@ -531,6 +579,9 @@ fn main() -> Result<(), io::Error> {
                                     reverse = !reverse;
                                 }
                                 sort_col = 3;
+                            },
+                            KeyCode::Char('?') => {
+                                show_help = !show_help
                             },
                             KeyCode::Enter => {
                                 if !table_state.selected().is_none() {
