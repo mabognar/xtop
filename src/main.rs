@@ -16,24 +16,20 @@ use ratatui::widgets::{LineGauge, Paragraph};
 
 use std::{io};
 use std::time::Duration;
+use crossterm::event::KeyEventKind;
+use ratatui::text::{Span};
 use sysinfo::{System, ProcessesToUpdate, ProcessRefreshKind, Users};
 
 
 fn main() -> Result<(), io::Error> {
 
-    // let mut components = Components::new_with_refreshed_list();
-    // components.refresh(true);
-
-    // let mut networks = Networks::new_with_refreshed_list();
-
     let mut s = System::new_all();
-    // s.refresh_processes(ProcessesToUpdate::All, true);
 
     let mut update_freq = 1000;
 
     // Table state
     let mut table_state = TableState::default();
-    table_state.select(Some(0)); // Start with the first row selected
+    table_state.select(Some(0)); // Start with first row selected
 
     // Search state
     let mut filter_text = String::new();
@@ -48,7 +44,6 @@ fn main() -> Result<(), io::Error> {
     let mut editing = false;
     let mut edit_integer = 0;
 
-
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -56,6 +51,16 @@ fn main() -> Result<(), io::Error> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     let mut process_info = 0;
+
+    let col_border = Color::Rgb(150,150,100);
+    let col_title = Color::Rgb(200,200,100);
+    let col_menu = Color::Rgb(200,200,100);
+    let col_menu_mut = Color::Rgb(200,100,100);
+    let col_mem_total = Color::Rgb(200,200,100);
+    let col_mem_used = Color::Rgb(200,100,100);
+    let col_mem_avail = Color::Rgb(100,200,100);
+    let col_mem_free = Color::Rgb(50,255,255);
+    let col_table_header = Color::Rgb(200,200,100);
 
 
     // Run the render loop
@@ -144,13 +149,6 @@ fn main() -> Result<(), io::Error> {
                     ]));
                 }
 
-                // let rows: Vec<Row> = s.cpus().iter().map(|cpu| {
-                //     Row::new(vec![
-                //         Cell::from(Line::from(cpu.name().to_string()).right_aligned()),
-                //         Cell::from(Line::from(format!("{:.1}%", cpu.cpu_usage())).right_aligned()),
-                //     ])
-                // }).collect();
-
                 let loadavg = System::load_average();
 
                 let table = Table::new(rows,[Constraint::Length(5), Constraint::Length(6),
@@ -163,10 +161,16 @@ fn main() -> Result<(), io::Error> {
                     .column_spacing(1)
                     .block(Block::default().title(Line::from(" Core Information ").style(Style::default().bold()))
                         .title_style(Color::Rgb(200,200,100))
-                        .borders(Borders::ALL).border_style(Color::Rgb(150,150,100))
-                        .title_bottom(Line::from(format!(" Load Ave: {:.2} {:.2} {:.2} ",
-                                                         loadavg.one, loadavg.five, loadavg.fifteen))
-                            .right_aligned().style(Style::default().fg(Color::Rgb(200,100,100)))))
+                        .borders(Borders::ALL).border_style(col_border)
+                        .title_bottom(Line::from(vec![
+                            Span::styled(" Load Ave: ", Style::default().fg(col_menu)),
+                            Span::styled(format!("{:.2} {:.2} {:.2} ",
+                                                 loadavg.one, loadavg.five, loadavg.fifteen), Style::default().fg(col_menu_mut)),
+
+                        ])
+                            // .title_bottom(Line::from(format!(" Load Ave: {:.2} {:.2} {:.2} ",
+                            //                                  loadavg.one, loadavg.five, loadavg.fifteen))
+                            .right_aligned()))
                     ;
 
                 f.render_widget(table, left_panel[0]);
@@ -228,18 +232,24 @@ fn main() -> Result<(), io::Error> {
                     .block(Block::default().borders(Borders::ALL))
                     .column_spacing(1)
                     .block(Block::default().title(Line::from(" Memory (GB) ").style(Style::default().bold()))
-                        .title_style(Color::Rgb(200,200,100))
-                        .borders(Borders::ALL).border_style(Color::Rgb(150,150,100))
-                        .title_style(Color::Rgb(200,200,100))
-                        .title_bottom(Line::from(format!(" Update (ms): (-) {:.0} (+) ", update_freq))
-                            .right_aligned().style(Style::default().fg(Color::Rgb(200,100,100)))));
+                        .title_style(col_title)
+                        .borders(Borders::ALL).border_style(col_border)
+                        .title_style(col_title)
+                        .title_bottom(Line::from(vec![
+                           Span::styled(" Update (ms):", Style::default().fg(col_menu)),
+                           Span::styled(" - ", Style::default().fg(Color::LightRed)),
+                           Span::styled(format!("{:.0}", update_freq), Style::default().fg(col_menu_mut)),
+                           Span::styled(" + ", Style::default().fg(Color::LightRed)),
+
+                        ]).right_aligned())
+                    );
 
                 f.render_widget(table, left_panel[1]);
 
 
                 // memory gauge
-                let color_memory = vec![Color::Rgb(200,200,100),Color::Rgb(200,100,100),
-                                        Color::Rgb(100,200,100),Color::Rgb(50,255,255)];
+                let color_memory = vec![col_mem_total, col_mem_used,
+                                        col_mem_avail, col_mem_free];
                 let mut area_vec = vec![];
                 for i in 0..4 {
                     area_vec.push(Rect::new(14, left_panel[1].y + (i+1) as u16, left_panel[1].width-16, 1));
@@ -254,67 +264,6 @@ fn main() -> Result<(), io::Error> {
                         .ratio(memory_vec[i]/memory_vec[0]); // Sets 42% progress
                     f.render_widget(&gauge, area_vec[i]);
                 }
-
-
-
-                ////////////////
-                // Networking //
-                ////////////////
-                // networks.refresh(true);
-                //
-                // let up_kbps = (networks.get("en0").unwrap().transmitted() as u64) / ((update_freq as u64) /
-                // (1000u64) * (1000u64)) as u64;
-                // let dn_kbps = (networks.get("en0").unwrap().received() as u64) / ((update_freq as u64) /
-                // (1000u64) * (1000u64)) as u64;
-                //
-                // let rows = vec!{
-                //     Row::new(vec![
-                //         Cell::from("Up: "),
-                //         Cell::from(Line::from(format!("{:.1}",
-                //                                       (networks.get("en0").unwrap().transmitted() as f64) /
-                // ((update_freq as f64) / (1000f64) * (1000f64)))).right_aligned())]),
-                //     Row::new(vec![
-                //         Cell::from("Dn: "),
-                //         Cell::from(Line::from(format!("{:.1}",
-                //                                       (networks.get("en0").unwrap().received() as f64) /
-                // ((update_freq as f64) / (1000f64) * (1000f64))),
-                //         ).right_aligned())]),
-                // };
-                //
-                // let table = Table::new(rows,[Constraint::Length(3), Constraint::Length(8)])
-                //     .block(Block::default().borders(Borders::ALL))
-                //     .column_spacing(1)
-                //     .block(Block::default().title(Line::from(" Network (kbps) ").style(Style::default().bold()))
-                //         .title_style(Color::Rgb(200,200,100))
-                //         .borders(Borders::ALL).border_style(Color::Rgb(150,150,100))
-                //         .title_style(Color::Rgb(200,200,100)));
-                //
-                // f.render_widget(table, left_panel[2]);
-                //
-                // sparkline_vec_up.insert(0,up_kbps);
-                // sparkline_vec_dn.insert(0, dn_kbps);
-                //
-                // if sparkline_vec_up.len() > 100 {
-                //      sparkline_vec_up.pop();
-                //      sparkline_vec_dn.pop();
-                // }
-                //
-                // let mut sparkline_area_vec = vec![];
-                // for i in 0..1 {
-                //     sparkline_area_vec.push(Rect::new(14, left_panel[2].y + (i+1) as u16, left_panel[2].width-16, 6));
-                //
-                //     let gauge = Sparkline::default()
-                //         // .block(Block::bordered().title("Sparkline"))
-                //         .data(&sparkline_vec_dn)
-                //         .max(100)
-                //         .direction(RenderDirection::LeftToRight)
-                //         .style(Style::default().green())
-                //         .absent_value_style(Style::default().fg(Color::Red))
-                //         .absent_value_symbol(symbols::shade::FULL);
-                //
-                //     f.render_widget(&gauge, sparkline_area_vec[i]);
-                // }
-
 
 
                 //////////////////
@@ -367,8 +316,24 @@ fn main() -> Result<(), io::Error> {
                 let table = Table::new(
                     rows,
                     [Constraint::Length(6), Constraint::Min(18), Constraint::Length(10), Constraint::Length(6)])
-                    .header(Row::new(vec![" (p)id", "(n)ame", "  (m)emory", " (c)pu"])
-                        .style(Style::default().bold().white()))
+                    .header(Row::new(vec![
+                        Line::from(vec![
+                            Span::styled("p", Style::default().fg(Color::LightRed)),
+                            Span::styled("id", Style::default().fg(col_table_header)),
+                        ]).right_aligned().style(Style::default().bold()),
+                        Line::from(vec![
+                            Span::styled("n", Style::default().fg(Color::LightRed)),
+                            Span::styled("ame", Style::default().fg(col_table_header)),
+                        ]).left_aligned().style(Style::default().bold()),
+                        Line::from(vec![
+                            Span::styled("m", Style::default().fg(Color::LightRed)),
+                            Span::styled("emory", Style::default().fg(col_table_header)),
+                        ]).right_aligned().style(Style::default().bold()),
+                        Line::from(vec![
+                            Span::styled("c", Style::default().fg(Color::LightRed)),
+                            Span::styled("pu", Style::default().fg(col_table_header)),
+                        ]).right_aligned().style(Style::default().bold()),
+                    ]))
                     .row_highlight_style(Style::default().bg(Color::Rgb(100,100,50)))
                     .block(Block::default().title(Line::from(format!(" System Processes [{}/{}] ", srow, nrows))
                         .style(Style::default().bold())
@@ -376,8 +341,25 @@ fn main() -> Result<(), io::Error> {
                         .borders(Borders::ALL)
                         .border_style(Color::Rgb(150,150,100))
                         .title_style(Color::Rgb(200,200,100))
-                        .title_bottom(Line::from(" (f)irst (l)ast (↵)Info (s)earch (q)uit ")
-                            .style(Style::default().fg(Color::Rgb(200,100,100))))
+                        .title_bottom(Line::from(vec![
+                            Span::styled(" f", Style::default().fg(Color::LightRed)),
+                            Span::styled("irst", Style::default().fg(col_menu)),
+                            Span::styled(" | ", Style::default().fg(Color::Rgb(60,60,60))),
+                            Span::styled("l", Style::default().fg(Color::LightRed)),
+                            Span::styled("ast", Style::default().fg(col_menu)),
+                            Span::styled(" | ", Style::default().fg(Color::Rgb(60,60,60))),
+                            Span::styled("↵", Style::default().fg(Color::LightRed)),
+                            Span::styled("Info", Style::default().fg(col_menu)),
+                            Span::styled(" | ", Style::default().fg(Color::Rgb(60,60,60))),
+                            Span::styled("s", Style::default().fg(Color::LightRed)),
+                            Span::styled("earch", Style::default().fg(col_menu)),
+                            Span::styled(" | ", Style::default().fg(Color::Rgb(60,60,60))),
+                            Span::styled("q", Style::default().fg(Color::LightRed)),
+                            Span::styled("uit ", Style::default().fg(col_menu)),
+
+                        ]
+
+                        ))
                     );
 
                 right_panel_rows = right_panel[1].height - 3;
@@ -446,9 +428,11 @@ fn main() -> Result<(), io::Error> {
                         .row_highlight_style(Style::default().bg(Color::Rgb(100,100,50))) // Visual cue for selection
                         .block(Block::default().title(Line::from(" Process Details ").style(Style::default().bold()))
                             .borders(Borders::ALL)
-                            .border_style(Color::Rgb(150,150,100))
-                            .title_style(Color::Rgb(200,200,100))
-                            .title_bottom(Line::from(" (↵) Close ").style(Style::default().fg(Color::Rgb(200,100,100)))));
+                            .border_style(col_border)
+                            .title_style(col_title)
+                            .title_bottom(Line::from(vec![
+                                Span::styled(" ↵", Style::default().fg(Color::LightRed)),
+                                Span::styled("Close ", Style::default().fg(col_menu)),])));
 
                     right_panel_rows = right_panel[1].height -3;
 
@@ -479,155 +463,130 @@ fn main() -> Result<(), io::Error> {
         )?;
 
         if event::poll(Duration::from_millis(update_freq))? {
-
             if let Event::Key(key) = event::read()? {
+                if key.kind == KeyEventKind::Press {
+                    match editing {
 
-                match editing {
-
-                    false => match key.code {
-
-                        KeyCode::Char('q') => {
-                            break
-                        },
-
-                        KeyCode::Char('s') => {
-                            editing = true;
-                            process_info = 0;
-                        },
-
-                        KeyCode::Char('f') => {
-                            table_state.select_first()
-                        },
-
-                        KeyCode::Char('l') => {
-                            table_state.select_last()
-                        },
-
-                        KeyCode::Down => {
-                            let count = s.processes().len();
-                            let i = match table_state.selected() {
-                                Some(i) => if i >= count - 1 { count - 1 } else { i + 1 },
-                                None => 0,
-                            };
-                            table_state.select(Some(i));
-                        }
-
-                        KeyCode::Up => {
-                            // let count = s.processes().len();
-                            let i = match table_state.selected() {
-                                Some(i) => if i == 0 { 0 } else { i - 1 },
-                                // Some(i) => if i == 0 { count - 1 } else { i - 1 },
-                                None => 0,
-                            };
-                            table_state.select(Some(i));
-                        }
-
-                        KeyCode::Char('-') => {
-                            if update_freq > 200 {
-                                update_freq = update_freq - 200;
-                            }
-                        },
-
-                        KeyCode::Char('+') => {
-                            if update_freq < 3000 {
-                                update_freq = update_freq + 200;
-                            }
-                        },
-
-                        KeyCode::Char('p') => {
-                            if sort_col == current_col {
-                                reverse = !reverse;
-                            }
-                            sort_col = 0;
-                        },
-
-                        KeyCode::Char('n') => {
-                            if sort_col == current_col {
-                                reverse = !reverse;
-                            }
-                            sort_col = 1;
-                        },
-
-                        KeyCode::Char('m') => {
-                            if sort_col == current_col {
-                                reverse = !reverse;
-                            }
-                            sort_col = 2;
-                        },
-
-                        KeyCode::Char('c') => {
-                            if sort_col == current_col {
-                                reverse = !reverse;
-                            }
-                            sort_col = 3;
-                        },
-
-                        KeyCode::Enter => {
-                            if !table_state.selected().is_none() {
-                                process_info = if process_info == 0 { 1 } else { 0 }
-                            }
-                        },
-
-                        _ => {}
-
-                    },
-
-                    true => match key.code {
-                        
-                        KeyCode::Esc => {
-                            editing = false;
-                            filter_text.clear();
-                        },
-
-                        KeyCode::Enter => {
-                            // editing = false;
-                            if table_state.selected().is_some() {
-                                process_info = if process_info == 0 { 1 } else { 0 }
-                            }
-                        },
-
-                        KeyCode::Char(c) => {
-                            filter_text.push(c);
-                            if filter_text.len() == 0 {
+                        false => match key.code {
+                            KeyCode::Char('q') => {
+                                break
+                            },
+                            KeyCode::Char('s') => {
+                                editing = true;
                                 process_info = 0;
+                            },
+                            KeyCode::Char('f') => {
+                                table_state.select_first()
+                            },
+                            KeyCode::Char('l') => {
+                                table_state.select_last()
+                            },
+                            KeyCode::Down => {
+                                let count = s.processes().len();
+                                let i = match table_state.selected() {
+                                    Some(i) => if i >= count - 1 { count - 1 } else { i + 1 },
+                                    None => 0,
+                                };
+                                table_state.select(Some(i));
                             }
+                            KeyCode::Up => {
+                                // let count = s.processes().len();
+                                let i = match table_state.selected() {
+                                    Some(i) => if i == 0 { 0 } else { i - 1 },
+                                    // Some(i) => if i == 0 { count - 1 } else { i - 1 },
+                                    None => 0,
+                                };
+                                table_state.select(Some(i));
+                            }
+                            KeyCode::Char('-') => {
+                                if update_freq > 200 {
+                                    update_freq = update_freq - 200;
+                                }
+                            },
+                            KeyCode::Char('+') => {
+                                if update_freq < 3000 {
+                                    update_freq = update_freq + 200;
+                                }
+                            },
+                            KeyCode::Char('p') => {
+                                if sort_col == current_col {
+                                    reverse = !reverse;
+                                }
+                                sort_col = 0;
+                            },
+                            KeyCode::Char('n') => {
+                                if sort_col == current_col {
+                                    reverse = !reverse;
+                                }
+                                sort_col = 1;
+                            },
+                            KeyCode::Char('m') => {
+                                if sort_col == current_col {
+                                    reverse = !reverse;
+                                }
+                                sort_col = 2;
+                            },
+                            KeyCode::Char('c') => {
+                                if sort_col == current_col {
+                                    reverse = !reverse;
+                                }
+                                sort_col = 3;
+                            },
+                            KeyCode::Enter => {
+                                if !table_state.selected().is_none() {
+                                    process_info = if process_info == 0 { 1 } else { 0 }
+                                }
+                            },
+                            _ => {}
+
                         },
 
-                        KeyCode::Backspace => {
-                            if filter_text.len() == 0 {
+                        true => match key.code {
+                            KeyCode::Esc => {
                                 editing = false;
-                                process_info = 0;
-                            } else {
-                                filter_text.pop();
+                                filter_text.clear();
+                            },
+                            KeyCode::Enter => {
+                                // editing = false;
+                                if table_state.selected().is_some() {
+                                    process_info = if process_info == 0 { 1 } else { 0 }
+                                }
+                            },
+                            KeyCode::Char(c) => {
+                                filter_text.push(c);
+                                if filter_text.len() == 0 {
+                                    process_info = 0;
+                                }
+                            },
+                            KeyCode::Backspace => {
+                                if filter_text.len() == 0 {
+                                    editing = false;
+                                    process_info = 0;
+                                } else {
+                                    filter_text.pop();
+                                }
+                            },
+                            KeyCode::Down => {
+                                let count = s.processes().len();
+                                let i = match table_state.selected() {
+                                    Some(i) => if i >= count - 1 { count - 1 } else { i + 1 },
+                                    None => 0,
+                                };
+                                table_state.select(Some(i));
                             }
-                        },
-
-                        KeyCode::Down => {
-                            let count = s.processes().len();
-                            let i = match table_state.selected() {
-                                Some(i) => if i >= count - 1 { count - 1 } else { i + 1 },
-                                None => 0,
-                            };
-                            table_state.select(Some(i));
+                            KeyCode::Up => {
+                                // let count = s.processes().len();
+                                let i = match table_state.selected() {
+                                    Some(i) => if i == 0 { 0 } else { i - 1 },
+                                    None => 0,
+                                };
+                                table_state.select(Some(i));
+                            }
+                            _ => {}
                         }
-
-                        KeyCode::Up => {
-                            // let count = s.processes().len();
-                            let i = match table_state.selected() {
-                                Some(i) => if i == 0 { 0 } else { i - 1 },
-                                None => 0,
-                            };
-                            table_state.select(Some(i));
-                        }
-
-                        _ => {}
-
                     }
-
                 }
-
             }
-
         }
 
     } // main loop
