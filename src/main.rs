@@ -230,6 +230,9 @@ fn ui(f: &mut Frame, app: &mut App) {
     let col_table_header = Color::Rgb(200, 200, 100);
     let col_pipe = Color::Rgb(60, 60, 60);
     let col_hot_key = Color::LightRed;
+    let col_popup_border = Color::Rgb(200,150,100);
+    let col_row_highlight = Color::Rgb(100, 100, 50);
+    let col_border_search = Color::Rgb(200, 100, 100);
 
     // Get raw list and apply filter
     let mut process_list: Vec<_> = app.s.processes().values().collect();
@@ -290,9 +293,9 @@ fn ui(f: &mut Frame, app: &mut App) {
         .style(search_style)
         .block(
             Block::default()
-                .title_style(Color::Rgb(200, 200, 100))
+                .title_style(col_title)
                 .borders(Borders::ALL)
-                .border_style(Color::Rgb(200, 100, 100))
+                .border_style(col_border_search)
                 .title(Line::from(" Type to search, escape to exit ").style(Style::default().bold())),
         );
     f.render_widget(search_bar, right_panel[0]);
@@ -330,7 +333,7 @@ fn ui(f: &mut Frame, app: &mut App) {
         .block(
             Block::default()
                 .title(Line::from(" Core Information ").style(Style::default().bold()))
-                .title_style(Color::Rgb(200, 200, 100))
+                .title_style(col_title)
                 .borders(Borders::ALL)
                 .border_style(col_border)
                 .title_bottom(
@@ -432,12 +435,12 @@ fn ui(f: &mut Frame, app: &mut App) {
                 .title_bottom(
                     Line::from(vec![
                         Span::styled(" Update (ms):", Style::default().fg(col_menu)),
-                        Span::styled(" - ", Style::default().fg(Color::LightRed)),
+                        Span::styled(" - ", Style::default().fg(col_hot_key)),
                         Span::styled(
                             format!("{:.0}", app.update_freq),
                             Style::default().fg(col_menu_mut),
                         ),
-                        Span::styled(" + ", Style::default().fg(Color::LightRed)),
+                        Span::styled(" + ", Style::default().fg(col_hot_key)),
                     ])
                         .right_aligned(),
                 ),
@@ -496,10 +499,10 @@ fn ui(f: &mut Frame, app: &mut App) {
     }
 
     let uptime_secs: u64 = System::uptime();
-    let h = uptime_secs / 3600;
-    let m = (uptime_secs % 3600) / 60;
+    let d = uptime_secs / 86400;
+    let h = (uptime_secs / 3600) % 24;
+    let m = (uptime_secs / 60) % 60;
     let s = uptime_secs % 60;
-    let d = uptime_secs / (3600 * 24);
 
     let proc_rows: Vec<Row> = process_list
         .iter()
@@ -533,23 +536,23 @@ fn ui(f: &mut Frame, app: &mut App) {
     )
         .header(Row::new(vec![
             Line::from(vec![
-                Span::styled("p", Style::default().fg(Color::LightRed)),
+                Span::styled("p", Style::default().fg(col_hot_key)),
                 Span::styled("id", Style::default().fg(col_table_header)),
             ]).right_aligned().style(Style::default().bold()),
             Line::from(vec![
-                Span::styled("n", Style::default().fg(Color::LightRed)),
+                Span::styled("n", Style::default().fg(col_hot_key)),
                 Span::styled("ame", Style::default().fg(col_table_header)),
             ]).left_aligned().style(Style::default().bold()),
             Line::from(vec![
-                Span::styled("m", Style::default().fg(Color::LightRed)),
+                Span::styled("m", Style::default().fg(col_hot_key)),
                 Span::styled("emory", Style::default().fg(col_table_header)),
             ]).right_aligned().style(Style::default().bold()),
             Line::from(vec![
-                Span::styled("c", Style::default().fg(Color::LightRed)),
+                Span::styled("c", Style::default().fg(col_hot_key)),
                 Span::styled("pu", Style::default().fg(col_table_header)),
             ]).right_aligned().style(Style::default().bold()),
         ]))
-        .row_highlight_style(Style::default().bg(Color::Rgb(100, 100, 50)))
+        .row_highlight_style(Style::default().bg(col_row_highlight))
         .block(
             Block::default()
                 .title(
@@ -566,8 +569,8 @@ fn ui(f: &mut Frame, app: &mut App) {
                         .right_aligned(),
                 )
                 .borders(Borders::ALL)
-                .border_style(Color::Rgb(150, 150, 100))
-                .title_style(Color::Rgb(200, 200, 100))
+                .border_style(col_border)
+                .title_style(col_title)
                 .title_bottom(Line::from(vec![
                     Span::styled(" f", Style::default().fg(col_hot_key)),
                     Span::styled("irst", Style::default().fg(col_menu)),
@@ -667,13 +670,13 @@ fn ui(f: &mut Frame, app: &mut App) {
             ]))
             .title_bottom(Line::from(vec![
                 Span::raw(" To close, type "),
-                Span::styled("? ", Color::LightRed),
+                Span::styled("? ", col_hot_key),
             ]))
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(
                 Style::default()
-                    .fg(Color::Rgb(200, 150, 100))
+                    .fg(col_popup_border)
                     .bg(Color::Black),
             );
 
