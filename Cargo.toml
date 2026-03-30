@@ -13,5 +13,5 @@ repository = "https://github.com/mabognar/xtop"
 [dependencies]
 ratatui = "0.30.0"
 crossterm = "0.29.0"
-sysinfo = "0.38.3"
+sysinfo = "0.38.4"
 
