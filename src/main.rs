@@ -17,6 +17,7 @@ use ratatui::{
 
 use std::io;
 use std::time::Duration;
+use ratatui::prelude::Stylize;
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, Users};
 
 /// Application state
@@ -32,6 +33,7 @@ struct App {
     show_popup: bool,
     process_info: u8,
 }
+
 
 impl App {
     fn new() -> Self {
@@ -219,20 +221,24 @@ fn main_loop <B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Resu
 
 
 fn ui(f: &mut Frame, app: &mut App) {
-    let col_border = Color::Rgb(150, 150, 100);
-    let col_title = Color::Rgb(200, 200, 100);
-    let col_menu = Color::Rgb(200, 200, 100);
-    let col_menu_mut = Color::Rgb(200, 100, 100);
-    let col_mem_total = Color::Rgb(200, 200, 100);
-    let col_mem_used = Color::Rgb(200, 100, 100);
-    let col_mem_avail = Color::Rgb(100, 200, 100);
-    let col_mem_free = Color::Rgb(50, 255, 255);
-    let col_table_header = Color::Rgb(200, 200, 100);
-    let col_pipe = Color::Rgb(60, 60, 60);
-    let col_hot_key = Color::LightRed;
-    let col_popup_border = Color::Rgb(200,150,100);
-    let col_row_highlight = Color::Rgb(100, 100, 50);
-    let col_border_search = Color::Rgb(200, 100, 100);
+
+    // colors used in app
+    let c_border = Color::Rgb(100, 150, 100);
+    let c_border_search = Color::Rgb(200, 100, 100);
+    let c_title = Color::Rgb(200, 200, 100);
+    let c_menu = Color::Rgb(200, 200, 100);
+    let c_menu_mut = Color::Rgb(200, 100, 100);
+    let c_pipe = Color::Rgb(60, 60, 60);
+    let c_hot_key = Color::LightRed;
+    let c_table_header = Color::Rgb(200, 200, 100);
+    let c_row_highlight = Color::Rgb(100, 100, 50);
+    let c_mem_total = Color::Rgb(200, 200, 100);
+    let c_mem_used = Color::Rgb(200, 100, 100);
+    let c_mem_avail = Color::Rgb(100, 200, 100);
+    let c_mem_free = Color::Rgb(50, 255, 255);
+    let c_popup_border = Color::Rgb(200,150,100);
+    let c_bg = Color::Rgb(0,0,0);
+    let c_fg = Color::Rgb(230,230,230);
 
     // Get raw list and apply filter
     let mut process_list: Vec<_> = app.s.processes().values().collect();
@@ -293,11 +299,12 @@ fn ui(f: &mut Frame, app: &mut App) {
         .style(search_style)
         .block(
             Block::default()
-                .title_style(col_title)
+                .title_style(c_title)
                 .borders(Borders::ALL)
-                .border_style(col_border_search)
-                .title(Line::from(" Type to search, escape to exit ").style(Style::default().bold())),
-        );
+                .border_style(c_border_search)
+                .title(Line::from(" Type to search, escape to exit ").
+                    style(Style::default().bold())),
+        ).bg(c_bg).fg(c_fg);
     f.render_widget(search_bar, right_panel[0]);
 
 
@@ -319,33 +326,33 @@ fn ui(f: &mut Frame, app: &mut App) {
             Constraint::Length(6),
             Constraint::Length(6),
             Constraint::Length(10),
-        ],
-    )
+        ])
         .block(Block::default().borders(Borders::ALL))
         .header(
             Row::new(vec![
                 Cell::from(Line::from("CPU").right_aligned()),
                 Cell::from(Line::from("Usage").right_aligned()),
             ])
-                .style(Style::default().bold().fg(col_table_header)),
+                .style(Style::default().bold().fg(c_table_header)),
         )
         .column_spacing(0)
         .block(
             Block::default()
                 .title(Line::from(" Core Information ").style(Style::default().bold()))
-                .title_style(col_title)
+                .title_style(c_title)
                 .borders(Borders::ALL)
-                .border_style(col_border)
+                .border_style(c_border)
                 .title_bottom(
                     Line::from(vec![
-                        Span::styled(" Load Ave: ", Style::default().fg(col_menu)),
+                        Span::styled(" Load Ave: ", Style::default().fg(c_menu)),
                         Span::styled(
                             format!("{:.2} {:.2} {:.2} ", loadavg.one, loadavg.five, loadavg.fifteen),
-                            Style::default().fg(col_menu_mut),
+                            Style::default().fg(c_menu_mut),
                         ),
-                    ])
-                        .right_aligned(),
-                ),
+                    ]).right_aligned(),
+                )
+                .bg(c_bg)
+                .fg(c_fg),
         );
 
     f.render_widget(table, left_panel[0]);
@@ -428,28 +435,30 @@ fn ui(f: &mut Frame, app: &mut App) {
         .block(
             Block::default()
                 .title(Line::from(" Memory (GB) ").style(Style::default().bold()))
-                .title_style(col_title)
+                .title_style(c_title)
                 .borders(Borders::ALL)
-                .border_style(col_border)
-                .title_style(col_title)
+                .border_style(c_border)
+                .title_style(c_title)
                 .title_bottom(
                     Line::from(vec![
-                        Span::styled(" Update (ms):", Style::default().fg(col_menu)),
-                        Span::styled(" - ", Style::default().fg(col_hot_key)),
+                        Span::styled(" Update (ms):", Style::default().fg(c_menu)),
+                        Span::styled(" - ", Style::default().fg(c_hot_key)),
                         Span::styled(
                             format!("{:.0}", app.update_freq),
-                            Style::default().fg(col_menu_mut),
+                            Style::default().fg(c_menu_mut),
                         ),
-                        Span::styled(" + ", Style::default().fg(col_hot_key)),
+                        Span::styled(" + ", Style::default().fg(c_hot_key)),
                     ])
                         .right_aligned(),
-                ),
+                )
+                .bg(c_bg)
+                .fg(c_fg),
         );
 
     f.render_widget(mem_table, left_panel[1]);
 
     // memory gauge
-    let color_memory = vec![col_mem_total, col_mem_used, col_mem_avail, col_mem_free];
+    let color_memory = vec![c_mem_total, c_mem_used, c_mem_avail, c_mem_free];
     let mut area_vec = vec![];
     for i in 0..4 {
         area_vec.push(Rect::new(
@@ -536,23 +545,23 @@ fn ui(f: &mut Frame, app: &mut App) {
     )
         .header(Row::new(vec![
             Line::from(vec![
-                Span::styled("p", Style::default().fg(col_hot_key)),
-                Span::styled("id", Style::default().fg(col_table_header)),
+                Span::styled("p", Style::default().fg(c_hot_key)),
+                Span::styled("id", Style::default().fg(c_table_header)),
             ]).right_aligned().style(Style::default().bold()),
             Line::from(vec![
-                Span::styled("n", Style::default().fg(col_hot_key)),
-                Span::styled("ame", Style::default().fg(col_table_header)),
+                Span::styled("n", Style::default().fg(c_hot_key)),
+                Span::styled("ame", Style::default().fg(c_table_header)),
             ]).left_aligned().style(Style::default().bold()),
             Line::from(vec![
-                Span::styled("m", Style::default().fg(col_hot_key)),
-                Span::styled("emory", Style::default().fg(col_table_header)),
+                Span::styled("m", Style::default().fg(c_hot_key)),
+                Span::styled("emory", Style::default().fg(c_table_header)),
             ]).right_aligned().style(Style::default().bold()),
             Line::from(vec![
-                Span::styled("c", Style::default().fg(col_hot_key)),
-                Span::styled("pu", Style::default().fg(col_table_header)),
+                Span::styled("c", Style::default().fg(c_hot_key)),
+                Span::styled("pu", Style::default().fg(c_table_header)),
             ]).right_aligned().style(Style::default().bold()),
         ]))
-        .row_highlight_style(Style::default().bg(col_row_highlight))
+        .row_highlight_style(Style::default().bg(c_row_highlight))
         .block(
             Block::default()
                 .title(
@@ -563,32 +572,34 @@ fn ui(f: &mut Frame, app: &mut App) {
                 .title(
                     Line::from(
                         vec![Span::styled(if f.area().width >= 70 {" Uptime:"} else {""},
-                            Style::default().fg(col_menu)),
+                            Style::default().fg(c_menu)),
                         Span::styled(format!(" {:01}d {:02}:{:02}:{:02} ", d, h, m, s),
-                             Style::default().fg(col_menu_mut)),])
+                             Style::default().fg(c_menu_mut)),])
                         .right_aligned(),
                 )
                 .borders(Borders::ALL)
-                .border_style(col_border)
-                .title_style(col_title)
+                .border_style(c_border)
+                .title_style(c_title)
                 .title_bottom(Line::from(vec![
-                    Span::styled(" f", Style::default().fg(col_hot_key)),
-                    Span::styled("irst", Style::default().fg(col_menu)),
-                    Span::styled(" | ", Style::default().fg(col_pipe)),
-                    Span::styled("l", Style::default().fg(col_hot_key)),
-                    Span::styled("ast", Style::default().fg(col_menu)),
-                    Span::styled(" | ", Style::default().fg(col_pipe)),
-                    Span::styled("↵", Style::default().fg(col_hot_key)),
-                    Span::styled("Info", Style::default().fg(col_menu)),
-                    Span::styled(" | ", Style::default().fg(col_pipe)),
-                    Span::styled("s", Style::default().fg(col_hot_key)),
-                    Span::styled("earch", Style::default().fg(col_menu)),
-                    Span::styled(" | ", Style::default().fg(col_pipe)),
-                    Span::styled("q", Style::default().fg(col_hot_key)),
-                    Span::styled("uit", Style::default().fg(col_menu)),
-                    Span::styled(" | ", Style::default().fg(col_pipe)),
-                    Span::styled("? ", Style::default().fg(col_hot_key)),
-                ])),
+                    Span::styled(" f", Style::default().fg(c_hot_key)),
+                    Span::styled("irst", Style::default().fg(c_menu)),
+                    Span::styled(" | ", Style::default().fg(c_pipe)),
+                    Span::styled("l", Style::default().fg(c_hot_key)),
+                    Span::styled("ast", Style::default().fg(c_menu)),
+                    Span::styled(" | ", Style::default().fg(c_pipe)),
+                    Span::styled("↵", Style::default().fg(c_hot_key)),
+                    Span::styled("Info", Style::default().fg(c_menu)),
+                    Span::styled(" | ", Style::default().fg(c_pipe)),
+                    Span::styled("s", Style::default().fg(c_hot_key)),
+                    Span::styled("earch", Style::default().fg(c_menu)),
+                    Span::styled(" | ", Style::default().fg(c_pipe)),
+                    Span::styled("q", Style::default().fg(c_hot_key)),
+                    Span::styled("uit", Style::default().fg(c_menu)),
+                    Span::styled(" | ", Style::default().fg(c_pipe)),
+                    Span::styled("? ", Style::default().fg(c_hot_key)),
+                ]))
+                .bg(c_bg)
+                .fg(c_fg),
         );
 
     f.render_stateful_widget(proc_table, right_panel[1], &mut app.table_state);
@@ -639,12 +650,14 @@ fn ui(f: &mut Frame, app: &mut App) {
                 Block::default()
                     .title(Line::from(" Process Details ").style(Style::default().bold()))
                     .borders(Borders::ALL)
-                    .border_style(col_border)
-                    .title_style(col_title)
+                    .border_style(c_border)
+                    .title_style(c_title)
                     .title_bottom(Line::from(vec![
-                        Span::styled(" ↵", Style::default().fg(col_hot_key)),
-                        Span::styled("Close ", Style::default().fg(col_menu)),
-                    ])),
+                        Span::styled(" ↵", Style::default().fg(c_hot_key)),
+                        Span::styled("Close ", Style::default().fg(c_menu)),
+                    ]))
+                    .bg(c_bg)
+                    .fg(c_fg),
             );
 
         f.render_widget(selected_process_table, right_panel[2]);
@@ -670,15 +683,16 @@ fn ui(f: &mut Frame, app: &mut App) {
             ]))
             .title_bottom(Line::from(vec![
                 Span::raw(" To close, type "),
-                Span::styled("? ", col_hot_key),
+                Span::styled("? ", c_hot_key),
             ]))
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(
                 Style::default()
-                    .fg(col_popup_border)
+                    .fg(c_popup_border)
                     .bg(Color::Black),
-            );
+            )
+            .bg(c_bg);
 
         let help_para = Paragraph::new(help_text)
             .block(block)
