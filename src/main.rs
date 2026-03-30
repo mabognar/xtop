@@ -323,9 +323,9 @@ fn ui(f: &mut Frame, app: &mut App) {
         rows,
         [
             Constraint::Length(6),
-            Constraint::Length(6),
-            Constraint::Length(6),
-            Constraint::Length(10),
+            Constraint::Length(7),
+            // Constraint::Length(6),
+            // Constraint::Length(10),
         ])
         .block(Block::default().borders(Borders::ALL))
         .header(
@@ -360,7 +360,7 @@ fn ui(f: &mut Frame, app: &mut App) {
     // cpu gauge
     let mut area_vec = vec![];
     for i in 1..=app.s.cpus().len() {
-        area_vec.push(Rect::new(14, (i + 1) as u16, left_panel[0].width - 16, 1));
+        area_vec.push(Rect::new(15, (i + 1) as u16, left_panel[0].width - 17, 1));
 
         if (i as u16) < (left_panel[0].height-2) {
             let cpuusage = app.s.cpus().get(i - 1).unwrap().cpu_usage();
