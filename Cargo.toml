@@ -1,6 +1,6 @@
 [package]
 name = "xtop"
-version = "0.3.7"
+version = "0.3.8"
 edition = "2021"
 license = "MIT"
 keywords = ["system", "monitor", "information"]
@@ -14,4 +14,4 @@ repository = "https://github.com/mabognar/xtop"
 ratatui = "0.30.0"
 crossterm = "0.29.0"
 sysinfo = "0.38.4"
-
+default-net = "0.22.0"

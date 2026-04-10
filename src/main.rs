@@ -18,11 +18,14 @@ use ratatui::{
 use std::io;
 use std::time::Duration;
 use ratatui::prelude::Stylize;
-use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, Users};
+use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, Users, Networks};
+use default_net;
+use default_net::get_default_interface;
 
 /// Application state
 struct App {
     s: System,
+    networks: Networks,
     update_freq: u64,
     table_state: TableState,
     filter_text: String,
@@ -34,7 +37,6 @@ struct App {
     process_info: u8,
 }
 
-
 impl App {
     fn new() -> Self {
         let mut table_state = TableState::default();
@@ -42,6 +44,7 @@ impl App {
 
         Self {
             s: System::new_all(),
+            networks: Networks::new_with_refreshed_list(),
             update_freq: 1000,
             table_state,
             filter_text: String::new(),
@@ -54,7 +57,6 @@ impl App {
         }
     }
 }
-
 
 fn main() -> Result<(), io::Error> {
     // Setup terminal
@@ -84,8 +86,7 @@ fn main() -> Result<(), io::Error> {
     Ok(())
 }
 
-
-fn main_loop <B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<()> {
+fn main_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<()> {
     loop {
         // Refresh system data before drawing
         app.s.refresh_cpu_usage();
@@ -95,6 +96,9 @@ fn main_loop <B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Resu
             true,
             ProcessRefreshKind::everything().without_tasks(),
         );
+
+        // Refresh network data using the persistent state
+        app.networks.refresh(true);
 
         terminal.draw(|f| ui(f, app)).expect("xtop panic");
 
@@ -219,9 +223,7 @@ fn main_loop <B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Resu
     }
 }
 
-
 fn ui(f: &mut Frame, app: &mut App) {
-
     // colors used in app
     let c_border = Color::Rgb(100, 150, 100);
     let c_border_search = Color::Rgb(200, 100, 100);
@@ -236,9 +238,9 @@ fn ui(f: &mut Frame, app: &mut App) {
     let c_mem_used = Color::Rgb(200, 100, 100);
     let c_mem_avail = Color::Rgb(100, 200, 100);
     let c_mem_free = Color::Rgb(50, 255, 255);
-    let c_popup_border = Color::Rgb(200,150,100);
-    let c_bg = Color::Rgb(0,0,0);
-    let c_fg = Color::Rgb(230,230,230);
+    let c_popup_border = Color::Rgb(200, 150, 100);
+    let c_bg = Color::Rgb(0, 0, 0);
+    let c_fg = Color::Rgb(230, 230, 230);
 
     // Get raw list and apply filter
     let mut process_list: Vec<_> = app.s.processes().values().collect();
@@ -257,12 +259,12 @@ fn ui(f: &mut Frame, app: &mut App) {
     let terminal_width = size.width;
     let terminal_height = size.height;
 
-    if terminal_width < 60 || terminal_height < 16 {
+    if terminal_width < 66 || terminal_height < 20 {
         let horizontal = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(100)])
             .split(size);
-        let p = Paragraph::new("Terminal size must be at least\n 60 x 16\n to display 'xtop'").centered();
+        let p = Paragraph::new("Terminal size must be at least\n 66 x 20\n to display 'xtop'").centered();
         f.render_widget(p, horizontal[0]);
         return;
     }
@@ -276,7 +278,7 @@ fn ui(f: &mut Frame, app: &mut App) {
     // Split the left panel vertically
     let left_panel = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Fill(1), Constraint::Length(6), Constraint::Length(0)])
+        .constraints([Constraint::Fill(1), Constraint::Length(6), Constraint::Length(6)])
         .split(horizontal[0]);
 
     // Adapt right panel to process info
@@ -302,12 +304,17 @@ fn ui(f: &mut Frame, app: &mut App) {
                 .title_style(c_title)
                 .borders(Borders::ALL)
                 .border_style(c_border_search)
-                .title(Line::from(" Type to search, escape to exit ").
-                    style(Style::default().bold())),
-        ).bg(c_bg).fg(c_fg);
+                .title(
+                    Line::from(" Type to search, escape to exit ")
+                        .style(Style::default().bold()),
+                ),
+        )
+        .bg(c_bg)
+        .fg(c_fg);
     f.render_widget(search_bar, right_panel[0]);
 
 
+    ////////////////////////////////////////////////////////////////////////////////////////
     // CPU
     let mut rows = Vec::new();
     for cpu in app.s.cpus().iter() {
@@ -321,12 +328,8 @@ fn ui(f: &mut Frame, app: &mut App) {
 
     let table = Table::new(
         rows,
-        [
-            Constraint::Length(6),
-            Constraint::Length(7),
-            // Constraint::Length(6),
-            // Constraint::Length(10),
-        ])
+        [Constraint::Length(6), Constraint::Length(7)],
+    )
         .block(Block::default().borders(Borders::ALL))
         .header(
             Row::new(vec![
@@ -349,7 +352,8 @@ fn ui(f: &mut Frame, app: &mut App) {
                             format!("{:.2} {:.2} {:.2} ", loadavg.one, loadavg.five, loadavg.fifteen),
                             Style::default().fg(c_menu_mut),
                         ),
-                    ]).right_aligned(),
+                    ])
+                        .right_aligned(),
                 )
                 .bg(c_bg)
                 .fg(c_fg),
@@ -362,7 +366,7 @@ fn ui(f: &mut Frame, app: &mut App) {
     for i in 1..=app.s.cpus().len() {
         area_vec.push(Rect::new(15, (i + 1) as u16, left_panel[0].width - 17, 1));
 
-        if (i as u16) < (left_panel[0].height-2) {
+        if (i as u16) < (left_panel[0].height - 2) {
             let cpuusage = app.s.cpus().get(i - 1).unwrap().cpu_usage();
             let gauge = LineGauge::default()
                 .label("")
@@ -379,6 +383,7 @@ fn ui(f: &mut Frame, app: &mut App) {
     }
 
 
+    ////////////////////////////////////////////////////////////////////////////////////////
     // Memory
     let mem_rows = vec![
         Row::new(vec![
@@ -438,19 +443,6 @@ fn ui(f: &mut Frame, app: &mut App) {
                 .title_style(c_title)
                 .borders(Borders::ALL)
                 .border_style(c_border)
-                .title_style(c_title)
-                .title_bottom(
-                    Line::from(vec![
-                        Span::styled(" Update (ms):", Style::default().fg(c_menu)),
-                        Span::styled(" - ", Style::default().fg(c_hot_key)),
-                        Span::styled(
-                            format!("{:.0}", app.update_freq),
-                            Style::default().fg(c_menu_mut),
-                        ),
-                        Span::styled(" + ", Style::default().fg(c_hot_key)),
-                    ])
-                        .right_aligned(),
-                )
                 .bg(c_bg)
                 .fg(c_fg),
         );
@@ -478,6 +470,77 @@ fn ui(f: &mut Frame, app: &mut App) {
     }
 
 
+    ////////////////////////////////////////////////////////////////////////////////////////
+    // Network
+    let (iface_name, iface_ip) = match get_default_interface() {
+        Ok(iface) => (iface.name, format!("{:?}", iface.ipv4)),
+        Err(_) => ("Unknown".to_string(), "Unknown".to_string()),
+    };
+
+    let mut iface_rec = 0;
+    let mut iface_tra = 0;
+
+    // Use the networks data stored in app state
+    if let Some(net_data) = app.networks.get(&iface_name) {
+        // Calculate per second rate based on update frequency
+        let freq_multiplier = 1000.0 / (app.update_freq as f64);
+        iface_rec = (net_data.received() as f64 * freq_multiplier) as u64;
+        iface_tra = (net_data.transmitted() as f64 * freq_multiplier) as u64;
+    }
+
+    let net_rows = vec![
+        Row::new(vec![
+            Cell::from("Inter: "),
+            Cell::from(Line::from(iface_name).right_aligned()),
+        ]),
+        Row::new(vec![
+            Cell::from("IPv4: "),
+            Cell::from(Line::from(iface_ip).right_aligned()),
+        ]),
+        Row::new(vec![
+            Cell::from("Rcvd: "),
+            // Cell::from(Line::from(format_speed(iface_rec)).right_aligned()),
+            Cell::from(Line::from(format!("{:.2} kB/s",iface_rec as f64 / 1024.0)).right_aligned()),
+        ]),
+        Row::new(vec![
+            Cell::from("Trans: "),
+            // Cell::from(Line::from(format_speed(iface_tra)).right_aligned()),
+            Cell::from(Line::from(format!("{:.2} kB/s",iface_tra as f64 / 1024.0)).right_aligned()),
+        ]),
+    ];
+
+    let net_table = Table::new(
+        net_rows,
+        [Constraint::Length(13), Constraint::Min(20)],
+    )
+        .block(Block::default().borders(Borders::ALL))
+        .column_spacing(1)
+        .block(
+            Block::default()
+                .title(Line::from(" Network ").style(Style::default().bold()))
+                .title_style(c_title)
+                .borders(Borders::ALL)
+                .border_style(c_border)
+                .bg(c_bg)
+                .fg(c_fg)
+                .title_bottom(
+                    Line::from(vec![
+                        Span::styled(" Update (ms):", Style::default().fg(c_menu)),
+                        Span::styled(" - ", Style::default().fg(c_hot_key)),
+                        Span::styled(
+                            format!("{:.0}", app.update_freq),
+                            Style::default().fg(c_menu_mut),
+                        ),
+                        Span::styled(" + ", Style::default().fg(c_hot_key)),
+                    ])
+                        .right_aligned(),
+                )
+        );
+
+    f.render_widget(net_table, left_panel[2]);
+
+
+    ////////////////////////////////////////////////////////////////////////////////////////
     // Process List
     if app.sort_col != app.current_col {
         app.reverse = false;
@@ -537,8 +600,8 @@ fn ui(f: &mut Frame, app: &mut App) {
     let proc_table = Table::new(
         proc_rows,
         [
-            Constraint::Length(6),
-            Constraint::Min(18),
+            Constraint::Length(7),
+            Constraint::Min(12),
             Constraint::Length(10),
             Constraint::Length(6),
         ],
@@ -547,19 +610,27 @@ fn ui(f: &mut Frame, app: &mut App) {
             Line::from(vec![
                 Span::styled("p", Style::default().fg(c_hot_key)),
                 Span::styled("id", Style::default().fg(c_table_header)),
-            ]).right_aligned().style(Style::default().bold()),
+            ])
+                .right_aligned()
+                .style(Style::default().bold()),
             Line::from(vec![
                 Span::styled("n", Style::default().fg(c_hot_key)),
                 Span::styled("ame", Style::default().fg(c_table_header)),
-            ]).left_aligned().style(Style::default().bold()),
+            ])
+                .left_aligned()
+                .style(Style::default().bold()),
             Line::from(vec![
                 Span::styled("m", Style::default().fg(c_hot_key)),
                 Span::styled("emory", Style::default().fg(c_table_header)),
-            ]).right_aligned().style(Style::default().bold()),
+            ])
+                .right_aligned()
+                .style(Style::default().bold()),
             Line::from(vec![
                 Span::styled("c", Style::default().fg(c_hot_key)),
                 Span::styled("pu", Style::default().fg(c_table_header)),
-            ]).right_aligned().style(Style::default().bold()),
+            ])
+                .right_aligned()
+                .style(Style::default().bold()),
         ]))
         .row_highlight_style(Style::default().bg(c_row_highlight))
         .block(
@@ -570,11 +641,16 @@ fn ui(f: &mut Frame, app: &mut App) {
                         .left_aligned(),
                 )
                 .title(
-                    Line::from(
-                        vec![Span::styled(if f.area().width >= 70 {" Uptime:"} else {""},
-                            Style::default().fg(c_menu)),
-                        Span::styled(format!(" {:01}d {:02}:{:02}:{:02} ", d, h, m, s),
-                             Style::default().fg(c_menu_mut)),])
+                    Line::from(vec![
+                        Span::styled(
+                            if f.area().width >= 70 { " Uptime:" } else { "" },
+                            Style::default().fg(c_menu),
+                        ),
+                        Span::styled(
+                            format!(" {:01}d {:02}:{:02}:{:02} ", d, h, m, s),
+                            Style::default().fg(c_menu_mut),
+                        ),
+                    ])
                         .right_aligned(),
                 )
                 .borders(Borders::ALL)
@@ -604,6 +680,8 @@ fn ui(f: &mut Frame, app: &mut App) {
 
     f.render_stateful_widget(proc_table, right_panel[1], &mut app.table_state);
 
+    
+    ////////////////////////////////////////////////////////////////////////////////////////
     // Process Details
     if app.table_state.selected().is_none() && app.process_info == 1 {
         app.process_info = 0;
@@ -663,7 +741,6 @@ fn ui(f: &mut Frame, app: &mut App) {
         f.render_widget(selected_process_table, right_panel[2]);
     }
 
-
     // about popup
     if app.show_popup {
         let area = centered_rect(f.area());
@@ -687,11 +764,7 @@ fn ui(f: &mut Frame, app: &mut App) {
             ]))
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .border_style(
-                Style::default()
-                    .fg(c_popup_border)
-                    .bg(Color::Black),
-            )
+            .border_style(Style::default().fg(c_popup_border).bg(Color::Black))
             .bg(c_bg);
 
         let help_para = Paragraph::new(help_text)
@@ -726,3 +799,5 @@ fn s_to_hms(secs: u64) -> (u64, u64, u64) {
     let s = secs % 60;
     (h, m, s)
 }
+
+
