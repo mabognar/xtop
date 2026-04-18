@@ -1,5 +1,5 @@
 use crossterm::{
-    event::{self, DisableMouseCapture, Event, KeyCode, KeyEventKind},
+    event::{self, Event, KeyCode, KeyEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -62,7 +62,7 @@ fn main() -> Result<(), io::Error> {
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, DisableMouseCapture)?;
+    execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -74,8 +74,7 @@ fn main() -> Result<(), io::Error> {
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
+        LeaveAlternateScreen
     )?;
     terminal.show_cursor()?;
 
@@ -499,12 +498,10 @@ fn ui(f: &mut Frame, app: &mut App) {
         ]),
         Row::new(vec![
             Cell::from("Rcvd: "),
-            // Cell::from(Line::from(format_speed(iface_rec)).right_aligned()),
             Cell::from(Line::from(format!("{:.2} kB/s",iface_rec as f64 / 1024.0)).right_aligned()),
         ]),
         Row::new(vec![
             Cell::from("Trans: "),
-            // Cell::from(Line::from(format_speed(iface_tra)).right_aligned()),
             Cell::from(Line::from(format!("{:.2} kB/s",iface_tra as f64 / 1024.0)).right_aligned()),
         ]),
     ];
@@ -680,7 +677,7 @@ fn ui(f: &mut Frame, app: &mut App) {
 
     f.render_stateful_widget(proc_table, right_panel[1], &mut app.table_state);
 
-    
+
     ////////////////////////////////////////////////////////////////////////////////////////
     // Process Details
     if app.table_state.selected().is_none() && app.process_info == 1 {
@@ -799,5 +796,3 @@ fn s_to_hms(secs: u64) -> (u64, u64, u64) {
     let s = secs % 60;
     (h, m, s)
 }
-
-
