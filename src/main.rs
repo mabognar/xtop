@@ -1,3 +1,5 @@
+mod config;
+
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
@@ -16,11 +18,14 @@ use ratatui::{
 };
 
 use std::io;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use ratatui::prelude::Stylize;
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, Users, Networks};
 use default_net;
 use default_net::get_default_interface;
+
+use syntect::highlighting::ThemeSet;
+use crate::config::Config;
 
 /// Application state
 struct App {
@@ -35,12 +40,66 @@ struct App {
     editing: bool,
     show_popup: bool,
     process_info: u8,
+    theme_set: ThemeSet,
+    available_themes: Vec<String>,
+    pub current_theme: String,
+    pub ui_colors: crate::config::UiColors,
+    pub theme_changed_time: Option<Instant>,
 }
 
 impl App {
+
     fn new() -> Self {
         let mut table_state = TableState::default();
         table_state.select(Some(0)); // Start with first row selected
+
+        // 1. Initialize syntect ThemeSet
+        let mut theme_set = syntect::highlighting::ThemeSet::load_defaults();
+
+        // 2. Load the `.tmTheme` files we extracted in main()
+        if let Some(theme_dir) = crate::config::Config::get_theme_dir() {
+            let _ = theme_set.add_from_folder(&theme_dir);
+        }
+
+        // 3. Get a sorted list of all the theme names syntect found
+        let mut available_themes: Vec<String> = theme_set.themes.keys().cloned().collect();
+        available_themes.sort();
+
+        // --- NEW CONFIG LOADING LOGIC ---
+        let saved_theme = crate::config::Config::load_config();
+
+        // 4. Set the initial theme string
+        let current_theme = if available_themes.contains(&saved_theme) {
+            saved_theme // Use the user's saved preference
+        } else if available_themes.contains(&"Default-Dark".to_string()) {
+            "Default-Dark".to_string() // Fallback to standard default
+        } else if !available_themes.is_empty() {
+            available_themes[0].clone() // Fallback to first available
+        } else {
+            "No-Themes-Found".to_string()
+        };
+
+        // let current_theme = if available_themes.contains(&"Default-Dark".to_string()) {
+        //     "Default-Dark".to_string()
+        // } else if !available_themes.is_empty() {
+        //     available_themes[0].clone()
+        // } else {
+        //     "No-Themes-Found".to_string()
+        // };
+
+        // Extract the initial UI colors
+        let ui_colors = if let Some(theme) = theme_set.themes.get(&current_theme) {
+            crate::config::UiColors::from_theme(theme)
+        } else {
+            // Safe fallback if parsing fails
+            crate::config::UiColors {
+                bg: Color::Rgb(0,0,0), fg: Color::Rgb(255,255,255),
+                menu_bg: Color::Rgb(40,40,40), selected_bg: Color::Rgb(60,60,60),
+                accent: Color::Rgb(100,200,255),
+                title: Color::Rgb(200, 200, 100),
+                is_dark: true,
+            }
+        };
 
         Self {
             s: System::new_all(),
@@ -54,11 +113,70 @@ impl App {
             editing: false,
             show_popup: false,
             process_info: 0,
+            theme_set,
+            available_themes,
+            current_theme,
+            ui_colors,
+            theme_changed_time: None,
         }
+    }
+    // fn new() -> Self {
+    //     let mut table_state = TableState::default();
+    //     table_state.select(Some(0)); // Start with first row selected
+    //
+    //     let mut theme_set = ThemeSet::new();
+    //     if let Some(theme_dir) = crate::config::Config::get_theme_dir() {
+    //         let _ = theme_set.add_from_folder(&theme_dir);
+    //     }
+    //
+    //     let mut available_themes: Vec<String> = theme_set.themes.keys().cloned().collect();
+    //     available_themes.sort();
+    //
+    //     let current_theme = if available_themes.contains(&"Default-Dark".to_string()) {
+    //         "Default-Dark".to_string()
+    //     } else {
+    //         available_themes.first().cloned().unwrap_or_else(|| "Default".to_string())
+    //     };
+    //
+    //     Self {
+    //         s: System::new_all(),
+    //         networks: Networks::new_with_refreshed_list(),
+    //         update_freq: 1000,
+    //         table_state,
+    //         filter_text: String::new(),
+    //         sort_col: 2,
+    //         current_col: 2,
+    //         reverse: false,
+    //         editing: false,
+    //         show_popup: false,
+    //         process_info: 0,
+    //         theme_set,
+    //         available_themes,
+    //         current_theme: String::new(),
+    //     }
+    // }
+
+    fn cycle_theme(&mut self) {
+        if self.available_themes.is_empty() { return; }
+        if let Some(current_idx) = self.available_themes.iter().position(|t| t == &self.current_theme) {
+            let next_idx = (current_idx + 1) % self.available_themes.len();
+            self.current_theme = self.available_themes[next_idx].clone();
+        }
+
+        crate::config::Config::save_config(&self.current_theme);
+
+        // Recalculate colors immediately upon switching
+        if let Some(theme) = self.theme_set.themes.get(&self.current_theme) {
+            self.ui_colors = crate::config::UiColors::from_theme(theme);
+        }
+
+        self.theme_changed_time = Some(Instant::now());
     }
 }
 
 fn main() -> Result<(), io::Error> {
+    let _ = Config::initialize_themes();
+
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -108,6 +226,7 @@ fn main_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Resul
                     match app.editing {
                         false => match key.code {
                             KeyCode::Char('q') => return Ok(()),
+                            KeyCode::Char('t') => app.cycle_theme(),
                             KeyCode::Char('s') => {
                                 app.editing = true;
                                 app.process_info = 0;
@@ -223,23 +342,50 @@ fn main_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Resul
 }
 
 fn ui(f: &mut Frame, app: &mut App) {
-    // colors used in app
-    let c_border = Color::Rgb(100, 150, 100);
-    let c_border_search = Color::Rgb(200, 100, 100);
-    let c_title = Color::Rgb(200, 200, 100);
-    let c_menu = Color::Rgb(200, 200, 100);
-    let c_menu_mut = Color::Rgb(200, 100, 100);
-    let c_pipe = Color::Rgb(60, 60, 60);
-    let c_hot_key = Color::LightRed;
-    let c_table_header = Color::Rgb(200, 200, 100);
-    let c_row_highlight = Color::Rgb(100, 100, 50);
+    let colors = app.ui_colors;
+
+    // Map your app colors to the theme's semantic colors
+    let c_bg = colors.bg;
+    let c_fg = colors.fg;
+    let c_border = colors.accent;        // Softest background derivative for panel borders
+    // let c_border = colors.menu_bg;        // Softest background derivative for panel borders
+
+    // Extract the RGB values from the menu background and push them another +/- 20
+    let c_pipe = match colors.menu_bg {
+        Color::Rgb(r, g, b) => {
+            if colors.is_dark {
+                // For dark themes, make the pipe slightly lighter than the menu background
+                Color::Rgb(r.saturating_add(40), g.saturating_add(40), b.saturating_add(40))
+            } else {
+                // For light themes, make the pipe slightly darker than the menu background
+                Color::Rgb(r.saturating_sub(40), g.saturating_sub(40), b.saturating_sub(40))
+            }
+        }
+        _ => Color::DarkGray, // Fallback just in case
+    };
+    // let c_pipe = colors.menu_bg;          // Same as borders for visual consistency
+    let c_row_highlight = colors.selected_bg;
+
+    // Use the theme's Accent color for highlights and text accents
+    let c_border_search = colors.accent;
+
+    let c_title = colors.title;
+    // let c_title = colors.accent;
+
+    let c_menu_mut = colors.accent;
+    let c_hot_key = colors.accent;
+    let c_table_header = colors.accent;
+    let c_popup_border = colors.accent;
+
+    // Normal text
+    let c_menu = colors.fg;
+
+    // Leave the memory gauge colors as hardcoded Rgb so your graphs don't
+    // get muddy or unreadable if the theme has a weird palette
     let c_mem_total = Color::Rgb(200, 200, 100);
     let c_mem_used = Color::Rgb(200, 100, 100);
     let c_mem_avail = Color::Rgb(100, 200, 100);
     let c_mem_free = Color::Rgb(50, 255, 255);
-    let c_popup_border = Color::Rgb(200, 150, 100);
-    let c_bg = Color::Rgb(0, 0, 0);
-    let c_fg = Color::Rgb(230, 230, 230);
 
     // Get raw list and apply filter
     let mut process_list: Vec<_> = app.s.processes().values().collect();
@@ -268,19 +414,25 @@ fn ui(f: &mut Frame, app: &mut App) {
         return;
     }
 
-    // Split the screen horizontally
+    // 1. Split the entire screen: everything on top, 1 line on the bottom
+    let main_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Fill(1), Constraint::Length(1)])
+        .split(size);
+
+    // 2. Split the top portion horizontally for your main UI panels
     let horizontal = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
-        .split(size);
+        .split(main_layout[0]); // Notice we split main_layout[0] now, not size
 
-    // Split the left panel vertically
+    // 3. Split the left panel vertically (Unchanged)
     let left_panel = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Fill(1), Constraint::Length(6), Constraint::Length(6)])
         .split(horizontal[0]);
 
-    // Adapt right panel to process info
+    // 4. Adapt right panel (Removed the 2-line menu constraint)
     let right_panel = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -289,6 +441,39 @@ fn ui(f: &mut Frame, app: &mut App) {
             Constraint::Length((app.process_info as u16) * 7),
         ])
         .split(horizontal[1]);
+
+    // // Split the screen horizontally
+    // let horizontal = Layout::default()
+    //     .direction(Direction::Horizontal)
+    //     .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
+    //     .split(size);
+    //
+    // // Split the left panel vertically
+    // let left_panel = Layout::default()
+    //     .direction(Direction::Vertical)
+    //     .constraints([Constraint::Fill(1), Constraint::Length(6), Constraint::Length(6)])
+    //     .split(horizontal[0]);
+    //
+    // // Adapt right panel to process info
+    // // Adapt right panel to process info
+    // let right_panel = Layout::default()
+    //     .direction(Direction::Vertical)
+    //     .constraints([
+    //         Constraint::Length(3 * if app.editing { 1 } else { 0 }), // right_panel[0] - Search
+    //         Constraint::Fill(1),                                     // right_panel[1] - Process Table
+    //         Constraint::Length(2),                                   // right_panel[2] - 2-Line Menu
+    //         Constraint::Length((app.process_info as u16) * 7),       // right_panel[3] - Process Details
+    //     ])
+    //     .split(horizontal[1]);
+
+    // let right_panel = Layout::default()
+    //     .direction(Direction::Vertical)
+    //     .constraints([
+    //         Constraint::Length(3 * if app.editing { 1 } else { 0 }),
+    //         Constraint::Fill(1),
+    //         Constraint::Length((app.process_info as u16) * 7),
+    //     ])
+    //     .split(horizontal[1]);
 
     // Render Search Box
     let search_style = match app.editing {
@@ -346,7 +531,7 @@ fn ui(f: &mut Frame, app: &mut App) {
                 .border_style(c_border)
                 .title_bottom(
                     Line::from(vec![
-                        Span::styled(" Load Ave: ", Style::default().fg(c_menu)),
+                        Span::styled(" Load Ave: ", Style::default().fg(colors.accent)),
                         Span::styled(
                             format!("{:.2} {:.2} {:.2} ", loadavg.one, loadavg.five, loadavg.fifteen),
                             Style::default().fg(c_menu_mut),
@@ -374,7 +559,7 @@ fn ui(f: &mut Frame, app: &mut App) {
                     ((100.0 - cpuusage) * 255.0 / 100.0) as u8,
                     0,
                 )))
-                .unfilled_style(Style::new().fg(Color::Rgb(30, 30, 30)))
+                .unfilled_style(Style::new().fg(colors.menu_bg))
                 .filled_symbol(symbols::line::THICK_HORIZONTAL)
                 .ratio((cpuusage / 100.0) as f64);
             f.render_widget(&gauge, area_vec[i - 1]);
@@ -462,7 +647,7 @@ fn ui(f: &mut Frame, app: &mut App) {
         let gauge = LineGauge::default()
             .label("")
             .filled_style(Style::new().fg(color_memory[i]))
-            .unfilled_style(Style::new().fg(Color::Rgb(30, 30, 30)))
+            .unfilled_style(Style::new().fg(colors.menu_bg))
             .filled_symbol(symbols::line::THICK_HORIZONTAL)
             .ratio(memory_vec[i] / memory_vec[0]);
         f.render_widget(&gauge, area_vec[i]);
@@ -522,7 +707,7 @@ fn ui(f: &mut Frame, app: &mut App) {
                 .fg(c_fg)
                 .title_bottom(
                     Line::from(vec![
-                        Span::styled(" Update (ms):", Style::default().fg(c_menu)),
+                        Span::styled(" Update (ms):", Style::default().fg(colors.accent)),
                         Span::styled(" - ", Style::default().fg(c_hot_key)),
                         Span::styled(
                             format!("{:.0}", app.update_freq),
@@ -606,25 +791,25 @@ fn ui(f: &mut Frame, app: &mut App) {
         .header(Row::new(vec![
             Line::from(vec![
                 Span::styled("p", Style::default().fg(c_hot_key)),
-                Span::styled("id", Style::default().fg(c_table_header)),
+                Span::styled("id", Style::default().fg(c_menu)),
             ])
                 .right_aligned()
                 .style(Style::default().bold()),
             Line::from(vec![
                 Span::styled("n", Style::default().fg(c_hot_key)),
-                Span::styled("ame", Style::default().fg(c_table_header)),
+                Span::styled("ame", Style::default().fg(c_menu)),
             ])
                 .left_aligned()
                 .style(Style::default().bold()),
             Line::from(vec![
                 Span::styled("m", Style::default().fg(c_hot_key)),
-                Span::styled("emory", Style::default().fg(c_table_header)),
+                Span::styled("emory", Style::default().fg(c_menu)),
             ])
                 .right_aligned()
                 .style(Style::default().bold()),
             Line::from(vec![
                 Span::styled("c", Style::default().fg(c_hot_key)),
-                Span::styled("pu", Style::default().fg(c_table_header)),
+                Span::styled("pu", Style::default().fg(c_menu)),
             ])
                 .right_aligned()
                 .style(Style::default().bold()),
@@ -641,7 +826,7 @@ fn ui(f: &mut Frame, app: &mut App) {
                     Line::from(vec![
                         Span::styled(
                             if f.area().width >= 70 { " Uptime:" } else { "" },
-                            Style::default().fg(c_menu),
+                            Style::default().fg(colors.accent),
                         ),
                         Span::styled(
                             format!(" {:01}d {:02}:{:02}:{:02} ", d, h, m, s),
@@ -653,24 +838,24 @@ fn ui(f: &mut Frame, app: &mut App) {
                 .borders(Borders::ALL)
                 .border_style(c_border)
                 .title_style(c_title)
-                .title_bottom(Line::from(vec![
-                    Span::styled(" f", Style::default().fg(c_hot_key)),
-                    Span::styled("irst", Style::default().fg(c_menu)),
-                    Span::styled(" | ", Style::default().fg(c_pipe)),
-                    Span::styled("l", Style::default().fg(c_hot_key)),
-                    Span::styled("ast", Style::default().fg(c_menu)),
-                    Span::styled(" | ", Style::default().fg(c_pipe)),
-                    Span::styled("↵", Style::default().fg(c_hot_key)),
-                    Span::styled("Info", Style::default().fg(c_menu)),
-                    Span::styled(" | ", Style::default().fg(c_pipe)),
-                    Span::styled("s", Style::default().fg(c_hot_key)),
-                    Span::styled("earch", Style::default().fg(c_menu)),
-                    Span::styled(" | ", Style::default().fg(c_pipe)),
-                    Span::styled("q", Style::default().fg(c_hot_key)),
-                    Span::styled("uit", Style::default().fg(c_menu)),
-                    Span::styled(" | ", Style::default().fg(c_pipe)),
-                    Span::styled("? ", Style::default().fg(c_hot_key)),
-                ]))
+                // .title_bottom(Line::from(vec![
+                //     Span::styled(" f", Style::default().fg(c_hot_key)),
+                //     Span::styled("irst", Style::default().fg(c_menu)),
+                //     Span::styled(" | ", Style::default().fg(c_pipe)),
+                //     Span::styled("l", Style::default().fg(c_hot_key)),
+                //     Span::styled("ast", Style::default().fg(c_menu)),
+                //     Span::styled(" | ", Style::default().fg(c_pipe)),
+                //     Span::styled("↵", Style::default().fg(c_hot_key)),
+                //     Span::styled("Info", Style::default().fg(c_menu)),
+                //     Span::styled(" | ", Style::default().fg(c_pipe)),
+                //     Span::styled("s", Style::default().fg(c_hot_key)),
+                //     Span::styled("earch", Style::default().fg(c_menu)),
+                //     Span::styled(" | ", Style::default().fg(c_pipe)),
+                //     Span::styled("q", Style::default().fg(c_hot_key)),
+                //     Span::styled("uit", Style::default().fg(c_menu)),
+                //     Span::styled(" | ", Style::default().fg(c_pipe)),
+                //     Span::styled("? ", Style::default().fg(c_hot_key)),
+                // ]))
                 .bg(c_bg)
                 .fg(c_fg),
         );
@@ -678,8 +863,34 @@ fn ui(f: &mut Frame, app: &mut App) {
     f.render_stateful_widget(proc_table, right_panel[1], &mut app.table_state);
 
 
+    // let menu_text = vec![
+    //     Line::from(vec![
+    //         Span::styled(" f", Style::default().fg(c_hot_key)), Span::styled("irst ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
+    //         Span::styled("l", Style::default().fg(c_hot_key)), Span::styled("ast ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
+    //         Span::styled("p", Style::default().fg(c_hot_key)), Span::styled("id ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
+    //         Span::styled("n", Style::default().fg(c_hot_key)), Span::styled("ame ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
+    //         Span::styled("m", Style::default().fg(c_hot_key)), Span::styled("em ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
+    //         Span::styled("c", Style::default().fg(c_hot_key)), Span::styled("pu", Style::default().fg(c_menu)),
+    //     ]),
+    //     Line::from(vec![
+    //         Span::styled(format!("[{}] ", app.current_theme), Style::default().fg(c_menu_mut)), // Shows current theme name!
+    //         Span::styled("t", Style::default().fg(c_hot_key)), Span::styled("heme ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
+    //         Span::styled("↵", Style::default().fg(c_hot_key)), Span::styled(" Info ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
+    //         Span::styled("s", Style::default().fg(c_hot_key)), Span::styled("earch ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
+    //         Span::styled("q", Style::default().fg(c_hot_key)), Span::styled("uit ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
+    //         Span::styled("? ", Style::default().fg(c_hot_key)), Span::styled("help ", Style::default().fg(c_menu)),
+    //     ]),
+    // ];
+    //
+    // let hotkey_menu = Paragraph::new(menu_text)
+    //     .alignment(ratatui::layout::Alignment::Right)
+    //     .bg(c_bg);
+    // f.render_widget(hotkey_menu, right_panel[2]);
+
+
     ////////////////////////////////////////////////////////////////////////////////////////
     // Process Details
+
     if app.table_state.selected().is_none() && app.process_info == 1 {
         app.process_info = 0;
     }
@@ -728,7 +939,7 @@ fn ui(f: &mut Frame, app: &mut App) {
                     .border_style(c_border)
                     .title_style(c_title)
                     .title_bottom(Line::from(vec![
-                        Span::styled(" ↵", Style::default().fg(c_hot_key)),
+                        Span::styled(" ↵ ", Style::default().fg(c_hot_key)),
                         Span::styled("Close ", Style::default().fg(c_menu)),
                     ]))
                     .bg(c_bg)
@@ -738,14 +949,64 @@ fn ui(f: &mut Frame, app: &mut App) {
         f.render_widget(selected_process_table, right_panel[2]);
     }
 
+    ////////////////////////////////////////////////////////////////////////////////////////
+    // Bottom Full-Width Menu
+
+    let menu_layout = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
+        .split(main_layout[1]);
+
+    // check if 3 seconds have passed since the theme was changed (or app started)
+    let show_theme_name = match app.theme_changed_time {
+        Some(time) => time.elapsed().as_secs() < 3,
+        None => false,
+    };
+
+    // dynamically build the left menu
+    let mut left_menu_spans = Vec::new();
+
+    if show_theme_name {
+        // left_menu_spans.push(Span::styled(": ", Style::default().fg(colors.fg).bold()));
+        left_menu_spans.push(Span::styled(format!(" {} ", app.current_theme), Style::default().fg(c_menu).bold()));
+    } else {
+        left_menu_spans.push(Span::styled(" t", Style::default().fg(c_hot_key)));
+        left_menu_spans.push(Span::styled("heme", Style::default().fg(c_menu)));
+        left_menu_spans.push(Span::raw(" "));
+    }
+
+    let left_menu = Paragraph::new(Line::from(left_menu_spans))
+        .block(Block::default().bg(colors.menu_bg));
+
+    // let left_menu = Paragraph::new(Line::from(vec![
+    //     Span::styled(" t", Style::default().fg(c_hot_key)),
+    //     Span::styled("heme: ", Style::default().fg(c_menu)),
+    //     Span::styled(format!("{}", app.current_theme), Style::default().fg(c_menu).bold()),
+    // ]))
+    //     .bg(colors.menu_bg);
+
+    let right_menu = Paragraph::new(Line::from(vec![
+        Span::styled("f", Style::default().fg(c_hot_key)), Span::styled("irst ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
+        Span::styled("l", Style::default().fg(c_hot_key)), Span::styled("ast ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
+        Span::styled("↵", Style::default().fg(c_hot_key)), Span::styled(" Info ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
+        Span::styled("s", Style::default().fg(c_hot_key)), Span::styled("earch ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
+        Span::styled("q", Style::default().fg(c_hot_key)), Span::styled("uit ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
+        Span::styled("? ", Style::default().fg(c_hot_key)), Span::styled("", Style::default().fg(c_menu)),
+    ]))
+        .alignment(ratatui::layout::Alignment::Right)
+        .bg(colors.menu_bg); // Match the left side background
+
+    f.render_widget(left_menu, menu_layout[0]);
+    f.render_widget(right_menu, menu_layout[1]);
+
     // about popup
     if app.show_popup {
         let area = centered_rect(f.area());
         let help_text = vec![
-            Line::from(Span::styled(" https://github.com/mabognar ", Color::White)),
+            Line::from(Span::styled(" https://github.com/mabognar ", colors.fg)),
             Line::from(vec![Span::styled(
                 " https://crates.io/crates/xtop ",
-                Color::White,
+                colors.fg,
             )]),
         ];
 
@@ -761,7 +1022,7 @@ fn ui(f: &mut Frame, app: &mut App) {
             ]))
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(c_popup_border).bg(Color::Black))
+            .border_style(Style::default().fg(c_popup_border).bg(colors.bg))
             .bg(c_bg);
 
         let help_para = Paragraph::new(help_text)
