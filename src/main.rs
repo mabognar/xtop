@@ -488,6 +488,7 @@ fn ui(f: &mut Frame, app: &mut App) {
                 .title_style(c_title)
                 .borders(Borders::ALL)
                 .border_style(c_border_search)
+                .border_type(BorderType::Rounded)
                 .title(
                     Line::from(" Type to search, escape to exit ")
                         .style(Style::default().bold()),
@@ -529,6 +530,7 @@ fn ui(f: &mut Frame, app: &mut App) {
                 .title_style(c_title)
                 .borders(Borders::ALL)
                 .border_style(c_border)
+                .border_type(BorderType::Rounded)
                 .title_bottom(
                     Line::from(vec![
                         Span::styled(" Load Ave: ", Style::default().fg(colors.accent)),
@@ -627,6 +629,7 @@ fn ui(f: &mut Frame, app: &mut App) {
                 .title_style(c_title)
                 .borders(Borders::ALL)
                 .border_style(c_border)
+                .border_type(BorderType::Rounded)
                 .bg(c_bg)
                 .fg(c_fg),
         );
@@ -703,6 +706,7 @@ fn ui(f: &mut Frame, app: &mut App) {
                 .title_style(c_title)
                 .borders(Borders::ALL)
                 .border_style(c_border)
+                .border_type(BorderType::Rounded)
                 .bg(c_bg)
                 .fg(c_fg)
                 .title_bottom(
@@ -837,6 +841,7 @@ fn ui(f: &mut Frame, app: &mut App) {
                 )
                 .borders(Borders::ALL)
                 .border_style(c_border)
+                .border_type(BorderType::Rounded)
                 .title_style(c_title)
                 // .title_bottom(Line::from(vec![
                 //     Span::styled(" f", Style::default().fg(c_hot_key)),
@@ -937,6 +942,7 @@ fn ui(f: &mut Frame, app: &mut App) {
                     .title(Line::from(" Process Details ").style(Style::default().bold()))
                     .borders(Borders::ALL)
                     .border_style(c_border)
+                    .border_type(BorderType::Rounded)
                     .title_style(c_title)
                     .title_bottom(Line::from(vec![
                         Span::styled(" ↵ ", Style::default().fg(c_hot_key)),
@@ -948,6 +954,7 @@ fn ui(f: &mut Frame, app: &mut App) {
 
         f.render_widget(selected_process_table, right_panel[2]);
     }
+
 
     ////////////////////////////////////////////////////////////////////////////////////////
     // Bottom Full-Width Menu
@@ -968,7 +975,7 @@ fn ui(f: &mut Frame, app: &mut App) {
 
     if show_theme_name {
         // left_menu_spans.push(Span::styled(": ", Style::default().fg(colors.fg).bold()));
-        left_menu_spans.push(Span::styled(format!(" {} ", app.current_theme), Style::default().fg(c_menu).bold()));
+        left_menu_spans.push(Span::styled(format!(" {} ", app.current_theme), Style::default().fg(c_menu)));
     } else {
         left_menu_spans.push(Span::styled(" t", Style::default().fg(c_hot_key)));
         left_menu_spans.push(Span::styled("heme", Style::default().fg(c_menu)));
