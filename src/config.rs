@@ -166,10 +166,10 @@ impl UiColors {
             let lower_name = name.to_lowercase();
             if lower_name.contains("catppuccin") {
                 accent = if is_dark { Color::Rgb(249, 226, 175) } else { Color::Rgb(223, 142, 29) };
-                title = if is_dark { Color::Rgb(166, 227, 161) } else { Color::Rgb(64, 160, 43) }; // Greenish for titles
+                title = if is_dark { Color::Rgb(166, 227, 161) } else { Color::Rgb(64, 160, 43) };
             } else if lower_name.contains("base16") {
                 accent = if is_dark { Color::Rgb(250, 188, 45) } else { Color::Rgb(200, 60, 20) };
-                title = if is_dark { Color::Rgb(181, 189, 104) } else { Color::Rgb(113, 140, 0) }; // Greenish for titles
+                title = if is_dark { Color::Rgb(181, 189, 104) } else { Color::Rgb(113, 140, 0) };
             }
         }
 
