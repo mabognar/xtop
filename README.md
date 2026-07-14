@@ -1,11 +1,10 @@
 # xtop
-System monitor written in Rust using terminal user interface (TUI). Fast, nice-looking, informative, and easy to use. 
-Works in Linux, macOS, Windows, and BSD. One-key sorting of processes by process id, name, cpu usage, and memory usage. 
-Search/filter by process name or process id.
+System monitor written in Rust using terminal user interface (TUI). Fast, nice-looking, informative, and easy to use. Works in Linux, macOS, Windows, and BSD. One-key sorting of processes by process id, name, cpu usage, and memory usage. 
+Search/filter by process name or process id. Has theme support, update notifications.
 
-<img width="924" height="700" alt="Screenshot 2026-04-10 at 12 15 34 PM" src="https://github.com/user-attachments/assets/17c8b6f6-7013-4f87-8277-2a8624976e68" />
-<img width="924" height="700" alt="Screenshot 2026-04-10 at 12 15 59 PM" src="https://github.com/user-attachments/assets/31c5db5b-c38a-41d1-8091-736abc060bc0" />
-<img width="924" height="700" alt="Screenshot 2026-04-10 at 12 16 13 PM" src="https://github.com/user-attachments/assets/8f4fb33c-2e70-4a0d-acfc-f7b6d412741c" />
+<img width="852" height="700" alt="xtop1" src="https://github.com/user-attachments/assets/d7ffbf4d-014a-41b6-9596-10d21f44acc0" />
+<img width="852" height="700" alt="xtop2" src="https://github.com/user-attachments/assets/5c82030b-424c-44fc-a1c2-f7c4948340e0" />
+<img width="852" height="700" alt="xtop3" src="https://github.com/user-attachments/assets/b60d30b8-d096-40d6-bea0-f51e20032b22" />
 
 ## Build
 
