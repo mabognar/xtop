@@ -1,4 +1,6 @@
 mod config;
+mod app;
+mod ui;
 
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
@@ -23,8 +25,9 @@ use ratatui::prelude::Stylize;
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, Users, Networks};
 use default_net;
 use default_net::get_default_interface;
-
 use syntect::highlighting::ThemeSet;
+use std::sync::mpsc::{self, Receiver};
+use std::thread;
 use crate::config::Config;
 
 /// Application state
@@ -34,6 +37,7 @@ struct App {
     update_freq: u64,
     table_state: TableState,
     filter_text: String,
+    cursor_position: usize,
     sort_col: u8,
     current_col: u8,
     reverse: bool,
@@ -45,30 +49,34 @@ struct App {
     pub current_theme: String,
     pub ui_colors: crate::config::UiColors,
     pub theme_changed_time: Option<Instant>,
+    pub notification: Option<String>,
+    pub notification_time: Option<Instant>,
+    pub update_rx: Option<Receiver<String>>,
+    pub update_version: Option<String>,
 }
 
 impl App {
+
+    fn show_notification(&mut self, msg: String) {
+        self.notification = Some(msg);
+        self.notification_time = Some(Instant::now());
+    }
 
     fn new() -> Self {
         let mut table_state = TableState::default();
         table_state.select(Some(0)); // Start with first row selected
 
-        // 1. Initialize syntect ThemeSet
         let mut theme_set = syntect::highlighting::ThemeSet::load_defaults();
 
-        // 2. Load the `.tmTheme` files we extracted in main()
         if let Some(theme_dir) = crate::config::Config::get_theme_dir() {
             let _ = theme_set.add_from_folder(&theme_dir);
         }
 
-        // 3. Get a sorted list of all the theme names syntect found
         let mut available_themes: Vec<String> = theme_set.themes.keys().cloned().collect();
         available_themes.sort();
 
-        // --- NEW CONFIG LOADING LOGIC ---
         let saved_theme = crate::config::Config::load_config();
 
-        // 4. Set the initial theme string
         let current_theme = if available_themes.contains(&saved_theme) {
             saved_theme // Use the user's saved preference
         } else if available_themes.contains(&"Default-Dark".to_string()) {
@@ -79,15 +87,6 @@ impl App {
             "No-Themes-Found".to_string()
         };
 
-        // let current_theme = if available_themes.contains(&"Default-Dark".to_string()) {
-        //     "Default-Dark".to_string()
-        // } else if !available_themes.is_empty() {
-        //     available_themes[0].clone()
-        // } else {
-        //     "No-Themes-Found".to_string()
-        // };
-
-        // Extract the initial UI colors
         let ui_colors = if let Some(theme) = theme_set.themes.get(&current_theme) {
             crate::config::UiColors::from_theme(theme)
         } else {
@@ -101,12 +100,32 @@ impl App {
             }
         };
 
+        let (update_tx, update_rx) = mpsc::channel();
+        thread::spawn(move || {
+            let current_version = env!("CARGO_PKG_VERSION");
+            if let Ok(resp) = ureq::get("https://api.github.com/repos/mabognar/xtop/releases/latest")
+                .set("User-Agent", "xtop-update-checker")
+                .timeout(Duration::from_secs(3))
+                .call()
+            {
+                if let Ok(json) = resp.into_json::<serde_json::Value>() {
+                    if let Some(tag) = json["tag_name"].as_str() {
+                        let latest_version = tag.trim_start_matches('v');
+                        if latest_version != current_version {
+                            let _ = update_tx.send(latest_version.to_string());
+                        }
+                    }
+                }
+            }
+        });
+
         Self {
             s: System::new_all(),
             networks: Networks::new_with_refreshed_list(),
             update_freq: 1000,
             table_state,
             filter_text: String::new(),
+            cursor_position: 0,
             sort_col: 2,
             current_col: 2,
             reverse: false,
@@ -118,43 +137,12 @@ impl App {
             current_theme,
             ui_colors,
             theme_changed_time: None,
+            notification: None,
+            notification_time: None,
+            update_rx: Some(update_rx),
+            update_version: None,
         }
     }
-    // fn new() -> Self {
-    //     let mut table_state = TableState::default();
-    //     table_state.select(Some(0)); // Start with first row selected
-    //
-    //     let mut theme_set = ThemeSet::new();
-    //     if let Some(theme_dir) = crate::config::Config::get_theme_dir() {
-    //         let _ = theme_set.add_from_folder(&theme_dir);
-    //     }
-    //
-    //     let mut available_themes: Vec<String> = theme_set.themes.keys().cloned().collect();
-    //     available_themes.sort();
-    //
-    //     let current_theme = if available_themes.contains(&"Default-Dark".to_string()) {
-    //         "Default-Dark".to_string()
-    //     } else {
-    //         available_themes.first().cloned().unwrap_or_else(|| "Default".to_string())
-    //     };
-    //
-    //     Self {
-    //         s: System::new_all(),
-    //         networks: Networks::new_with_refreshed_list(),
-    //         update_freq: 1000,
-    //         table_state,
-    //         filter_text: String::new(),
-    //         sort_col: 2,
-    //         current_col: 2,
-    //         reverse: false,
-    //         editing: false,
-    //         show_popup: false,
-    //         process_info: 0,
-    //         theme_set,
-    //         available_themes,
-    //         current_theme: String::new(),
-    //     }
-    // }
 
     fn cycle_theme(&mut self) {
         if self.available_themes.is_empty() { return; }
@@ -165,7 +153,7 @@ impl App {
 
         crate::config::Config::save_config(&self.current_theme);
 
-        // Recalculate colors immediately upon switching
+        // recalculate colors after switching
         if let Some(theme) = self.theme_set.themes.get(&self.current_theme) {
             self.ui_colors = crate::config::UiColors::from_theme(theme);
         }
@@ -184,7 +172,6 @@ fn main() -> Result<(), io::Error> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    // Create app state and run the main loop
     let mut app = App::new();
     let res = main_loop(&mut terminal, &mut app);
 
@@ -204,8 +191,18 @@ fn main() -> Result<(), io::Error> {
 }
 
 fn main_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<()> {
+
     loop {
-        // Refresh system data before drawing
+
+        if let Some(rx) = &app.update_rx {
+            if let Ok(version) = rx.try_recv() {
+                app.update_version = Some(version.clone());
+                app.show_notification(format!("Press u to update xtop to {}", version));
+                app.update_rx = None; // Stop checking once we receive a result
+            }
+        }
+
+        // refresh system data before drawing
         app.s.refresh_cpu_usage();
         app.s.refresh_memory();
         app.s.refresh_processes_specifics(
@@ -214,12 +211,11 @@ fn main_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Resul
             ProcessRefreshKind::everything().without_tasks(),
         );
 
-        // Refresh network data using the persistent state
+        // refresh network data
         app.networks.refresh(true);
 
         terminal.draw(|f| ui(f, app)).expect("xtop panic");
 
-        // Input handling
         if event::poll(Duration::from_millis(app.update_freq))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
@@ -230,6 +226,7 @@ fn main_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Resul
                             KeyCode::Char('s') => {
                                 app.editing = true;
                                 app.process_info = 0;
+                                app.cursor_position = app.filter_text.chars().count();
                             }
                             KeyCode::Char('f') => app.table_state.select_first(),
                             KeyCode::Char('l') => app.table_state.select_last(),
@@ -259,16 +256,37 @@ fn main_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Resul
                                 }
                             }
                             KeyCode::Char('p') => {
-                                if app.sort_col == app.current_col {
-                                    app.reverse = !app.reverse;
+                                if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) {
+                                    // Move up (Ctrl+P)
+                                    let i = match app.table_state.selected() {
+                                        Some(i) => if i == 0 { 0 } else { i - 1 },
+                                        None => 0,
+                                    };
+                                    app.table_state.select(Some(i));
+                                } else {
+                                    // Sort by PID ('p')
+                                    if app.sort_col == app.current_col {
+                                        app.reverse = !app.reverse;
+                                    }
+                                    app.sort_col = 0;
                                 }
-                                app.sort_col = 0;
                             }
                             KeyCode::Char('n') => {
-                                if app.sort_col == app.current_col {
-                                    app.reverse = !app.reverse;
+                                if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) {
+                                    // Move down (Ctrl+N)
+                                    let count = app.s.processes().len();
+                                    let i = match app.table_state.selected() {
+                                        Some(i) => if i >= count - 1 { count - 1 } else { i + 1 },
+                                        None => 0,
+                                    };
+                                    app.table_state.select(Some(i));
+                                } else {
+                                    // Sort by Name ('n')
+                                    if app.sort_col == app.current_col {
+                                        app.reverse = !app.reverse;
+                                    }
+                                    app.sort_col = 1;
                                 }
-                                app.sort_col = 1;
                             }
                             KeyCode::Char('m') => {
                                 if app.sort_col == app.current_col {
@@ -290,6 +308,14 @@ fn main_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Resul
                                     app.process_info = if app.process_info == 0 { 1 } else { 0 };
                                 }
                             }
+                            KeyCode::Char('u') => {
+                                if app.update_version.is_some() {
+                                    let _ = webbrowser::open("https://github.com/mabognar/xtop/releases/latest");
+                                    app.show_notification(String::from("Opened browser for update"));
+                                } else {
+                                    app.show_notification(String::from("No updates available"));
+                                }
+                            }
                             _ => {}
                         },
 
@@ -297,6 +323,7 @@ fn main_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Resul
                             KeyCode::Esc => {
                                 app.editing = false;
                                 app.filter_text.clear();
+                                app.cursor_position = 0;
                             }
                             KeyCode::Enter => {
                                 if app.table_state.selected().is_some() {
@@ -304,17 +331,76 @@ fn main_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Resul
                                 }
                             }
                             KeyCode::Char(c) => {
-                                app.filter_text.push(c);
-                                if app.filter_text.is_empty() {
-                                    app.process_info = 0;
+                                // Handle Ctrl shortcuts
+                                if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) {
+                                    if c == 'b' && app.cursor_position > 0 {
+                                        app.cursor_position -= 1;
+                                    } else if c == 'f' && app.cursor_position < app.filter_text.chars().count() {
+                                        app.cursor_position += 1;
+                                    } else if c == 'p' {
+                                        // Move up (Ctrl+P)
+                                        let i = match app.table_state.selected() {
+                                            Some(i) => if i == 0 { 0 } else { i - 1 },
+                                            None => 0,
+                                        };
+                                        app.table_state.select(Some(i));
+                                    } else if c == 'n' {
+                                        // Move down (Ctrl+N)
+                                        let count = app.s.processes().len();
+                                        let i = match app.table_state.selected() {
+                                            Some(i) => if i >= count - 1 { count - 1 } else { i + 1 },
+                                            None => 0,
+                                        };
+                                        app.table_state.select(Some(i));
+                                    }
+                                }
+                                // Standard typing
+                                else if !key.modifiers.intersects(crossterm::event::KeyModifiers::CONTROL | crossterm::event::KeyModifiers::ALT) {
+                                    let mut chars: Vec<char> = app.filter_text.chars().collect();
+                                    chars.insert(app.cursor_position, c);
+                                    app.filter_text = chars.into_iter().collect();
+                                    app.cursor_position += 1;
+
+                                    if app.filter_text.is_empty() {
+                                        app.process_info = 0;
+                                    }
                                 }
                             }
                             KeyCode::Backspace => {
                                 if app.filter_text.is_empty() {
                                     app.editing = false;
                                     app.process_info = 0;
-                                } else {
-                                    app.filter_text.pop();
+                                    app.cursor_position = 0;
+                                } else if app.cursor_position > 0 {
+                                    let mut chars: Vec<char> = app.filter_text.chars().collect();
+                                    app.cursor_position -= 1;
+                                    chars.remove(app.cursor_position);
+                                    app.filter_text = chars.into_iter().collect();
+
+                                    if app.filter_text.is_empty() {
+                                        app.process_info = 0;
+                                    }
+                                }
+                            }
+                            KeyCode::Delete => {
+                                if app.cursor_position < app.filter_text.chars().count() {
+                                    let mut chars: Vec<char> = app.filter_text.chars().collect();
+                                    chars.remove(app.cursor_position);
+                                    app.filter_text = chars.into_iter().collect();
+
+                                    if app.filter_text.is_empty() {
+                                        app.process_info = 0;
+                                    }
+                                }
+                            }
+                            KeyCode::Left => {
+                                if app.cursor_position > 0 {
+                                    app.cursor_position -= 1;
+                                }
+                            }
+                            KeyCode::Right => {
+                                if app.cursor_position < app.filter_text.chars().count() {
+                                    app.cursor_position += 1;
                                 }
                             }
                             KeyCode::Up => {
@@ -344,13 +430,11 @@ fn main_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Resul
 fn ui(f: &mut Frame, app: &mut App) {
     let colors = app.ui_colors;
 
-    // Map your app colors to the theme's semantic colors
+    // map colors
     let c_bg = colors.bg;
     let c_fg = colors.fg;
-    let c_border = colors.accent;        // Softest background derivative for panel borders
-    // let c_border = colors.menu_bg;        // Softest background derivative for panel borders
+    let c_border = colors.accent;
 
-    // Extract the RGB values from the menu background and push them another +/- 20
     let c_pipe = match colors.menu_bg {
         Color::Rgb(r, g, b) => {
             if colors.is_dark {
@@ -363,31 +447,19 @@ fn ui(f: &mut Frame, app: &mut App) {
         }
         _ => Color::DarkGray, // Fallback just in case
     };
-    // let c_pipe = colors.menu_bg;          // Same as borders for visual consistency
     let c_row_highlight = colors.selected_bg;
-
-    // Use the theme's Accent color for highlights and text accents
     let c_border_search = colors.accent;
-
     let c_title = colors.title;
-    // let c_title = colors.accent;
-
     let c_menu_mut = colors.accent;
     let c_hot_key = colors.accent;
     let c_table_header = colors.accent;
     let c_popup_border = colors.accent;
-
-    // Normal text
-    let c_menu = colors.fg;
-
-    // Leave the memory gauge colors as hardcoded Rgb so your graphs don't
-    // get muddy or unreadable if the theme has a weird palette
+    let c_menu = colors.fg; // normal text
     let c_mem_total = Color::Rgb(200, 200, 100);
     let c_mem_used = Color::Rgb(200, 100, 100);
     let c_mem_avail = Color::Rgb(100, 200, 100);
     let c_mem_free = Color::Rgb(50, 255, 255);
 
-    // Get raw list and apply filter
     let mut process_list: Vec<_> = app.s.processes().values().collect();
     if !app.filter_text.is_empty() {
         process_list.retain(|p| {
@@ -399,7 +471,7 @@ fn ui(f: &mut Frame, app: &mut App) {
         }
     }
 
-    // Setup terminal panels
+    // setup terminal
     let size = f.area();
     let terminal_width = size.width;
     let terminal_height = size.height;
@@ -414,25 +486,21 @@ fn ui(f: &mut Frame, app: &mut App) {
         return;
     }
 
-    // 1. Split the entire screen: everything on top, 1 line on the bottom
     let main_layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Fill(1), Constraint::Length(1)])
         .split(size);
 
-    // 2. Split the top portion horizontally for your main UI panels
     let horizontal = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
         .split(main_layout[0]); // Notice we split main_layout[0] now, not size
 
-    // 3. Split the left panel vertically (Unchanged)
     let left_panel = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Fill(1), Constraint::Length(6), Constraint::Length(6)])
         .split(horizontal[0]);
 
-    // 4. Adapt right panel (Removed the 2-line menu constraint)
     let right_panel = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -442,40 +510,7 @@ fn ui(f: &mut Frame, app: &mut App) {
         ])
         .split(horizontal[1]);
 
-    // // Split the screen horizontally
-    // let horizontal = Layout::default()
-    //     .direction(Direction::Horizontal)
-    //     .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
-    //     .split(size);
-    //
-    // // Split the left panel vertically
-    // let left_panel = Layout::default()
-    //     .direction(Direction::Vertical)
-    //     .constraints([Constraint::Fill(1), Constraint::Length(6), Constraint::Length(6)])
-    //     .split(horizontal[0]);
-    //
-    // // Adapt right panel to process info
-    // // Adapt right panel to process info
-    // let right_panel = Layout::default()
-    //     .direction(Direction::Vertical)
-    //     .constraints([
-    //         Constraint::Length(3 * if app.editing { 1 } else { 0 }), // right_panel[0] - Search
-    //         Constraint::Fill(1),                                     // right_panel[1] - Process Table
-    //         Constraint::Length(2),                                   // right_panel[2] - 2-Line Menu
-    //         Constraint::Length((app.process_info as u16) * 7),       // right_panel[3] - Process Details
-    //     ])
-    //     .split(horizontal[1]);
-
-    // let right_panel = Layout::default()
-    //     .direction(Direction::Vertical)
-    //     .constraints([
-    //         Constraint::Length(3 * if app.editing { 1 } else { 0 }),
-    //         Constraint::Fill(1),
-    //         Constraint::Length((app.process_info as u16) * 7),
-    //     ])
-    //     .split(horizontal[1]);
-
-    // Render Search Box
+    // search Box
     let search_style = match app.editing {
         false => Style::default(),
         true => Style::default().fg(Color::White),
@@ -497,6 +532,16 @@ fn ui(f: &mut Frame, app: &mut App) {
         .bg(c_bg)
         .fg(c_fg);
     f.render_widget(search_bar, right_panel[0]);
+
+    if app.editing {
+        let inner_width = right_panel[0].width.saturating_sub(2);
+        let cursor_x = (app.cursor_position as u16).min(inner_width);
+
+        f.set_cursor_position((
+            right_panel[0].x + 1 + cursor_x,
+            right_panel[0].y + 1,
+        ));
+    }
 
 
     ////////////////////////////////////////////////////////////////////////////////////////
@@ -843,54 +888,11 @@ fn ui(f: &mut Frame, app: &mut App) {
                 .border_style(c_border)
                 .border_type(BorderType::Rounded)
                 .title_style(c_title)
-                // .title_bottom(Line::from(vec![
-                //     Span::styled(" f", Style::default().fg(c_hot_key)),
-                //     Span::styled("irst", Style::default().fg(c_menu)),
-                //     Span::styled(" | ", Style::default().fg(c_pipe)),
-                //     Span::styled("l", Style::default().fg(c_hot_key)),
-                //     Span::styled("ast", Style::default().fg(c_menu)),
-                //     Span::styled(" | ", Style::default().fg(c_pipe)),
-                //     Span::styled("↵", Style::default().fg(c_hot_key)),
-                //     Span::styled("Info", Style::default().fg(c_menu)),
-                //     Span::styled(" | ", Style::default().fg(c_pipe)),
-                //     Span::styled("s", Style::default().fg(c_hot_key)),
-                //     Span::styled("earch", Style::default().fg(c_menu)),
-                //     Span::styled(" | ", Style::default().fg(c_pipe)),
-                //     Span::styled("q", Style::default().fg(c_hot_key)),
-                //     Span::styled("uit", Style::default().fg(c_menu)),
-                //     Span::styled(" | ", Style::default().fg(c_pipe)),
-                //     Span::styled("? ", Style::default().fg(c_hot_key)),
-                // ]))
                 .bg(c_bg)
                 .fg(c_fg),
         );
 
     f.render_stateful_widget(proc_table, right_panel[1], &mut app.table_state);
-
-
-    // let menu_text = vec![
-    //     Line::from(vec![
-    //         Span::styled(" f", Style::default().fg(c_hot_key)), Span::styled("irst ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
-    //         Span::styled("l", Style::default().fg(c_hot_key)), Span::styled("ast ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
-    //         Span::styled("p", Style::default().fg(c_hot_key)), Span::styled("id ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
-    //         Span::styled("n", Style::default().fg(c_hot_key)), Span::styled("ame ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
-    //         Span::styled("m", Style::default().fg(c_hot_key)), Span::styled("em ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
-    //         Span::styled("c", Style::default().fg(c_hot_key)), Span::styled("pu", Style::default().fg(c_menu)),
-    //     ]),
-    //     Line::from(vec![
-    //         Span::styled(format!("[{}] ", app.current_theme), Style::default().fg(c_menu_mut)), // Shows current theme name!
-    //         Span::styled("t", Style::default().fg(c_hot_key)), Span::styled("heme ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
-    //         Span::styled("↵", Style::default().fg(c_hot_key)), Span::styled(" Info ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
-    //         Span::styled("s", Style::default().fg(c_hot_key)), Span::styled("earch ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
-    //         Span::styled("q", Style::default().fg(c_hot_key)), Span::styled("uit ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
-    //         Span::styled("? ", Style::default().fg(c_hot_key)), Span::styled("help ", Style::default().fg(c_menu)),
-    //     ]),
-    // ];
-    //
-    // let hotkey_menu = Paragraph::new(menu_text)
-    //     .alignment(ratatui::layout::Alignment::Right)
-    //     .bg(c_bg);
-    // f.render_widget(hotkey_menu, right_panel[2]);
 
 
     ////////////////////////////////////////////////////////////////////////////////////////
@@ -956,47 +958,49 @@ fn ui(f: &mut Frame, app: &mut App) {
     }
 
 
-    ////////////////////////////////////////////////////////////////////////////////////////
-    // Bottom Full-Width Menu
-
+    // bottom menu
     let menu_layout = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
+        // Let the left side expand infinitely, pinning the right side to exactly 42 characters
+        .constraints([Constraint::Fill(1), Constraint::Length(42)])
         .split(main_layout[1]);
 
-    // check if 3 seconds have passed since the theme was changed (or app started)
     let show_theme_name = match app.theme_changed_time {
         Some(time) => time.elapsed().as_secs() < 3,
         None => false,
     };
 
-    // dynamically build the left menu
-    let mut left_menu_spans = Vec::new();
+    let show_notification = match app.notification_time {
+        Some(time) => time.elapsed().as_secs() < 3,
+        None => false,
+    };
 
-    if show_theme_name {
-        // left_menu_spans.push(Span::styled(": ", Style::default().fg(colors.fg).bold()));
+    let mut left_menu_spans = Vec::new();
+    if show_notification {
+        if let Some(ref msg) = app.notification {
+            // A quick and easy split trick right in the UI layer
+            let parts: Vec<&str> = msg.split(" u ").collect();
+            if parts.len() == 2 {
+                left_menu_spans.push(Span::styled(format!(" {}", parts[0]), Style::default().fg(c_menu).bold()));
+                left_menu_spans.push(Span::styled(" u ", Style::default().fg(c_hot_key).bold()));
+                left_menu_spans.push(Span::styled(format!("{} ", parts[1]), Style::default().fg(c_menu).bold()));
+            } else {
+                left_menu_spans.push(Span::styled(format!(" {} ", msg), Style::default().fg(c_menu).bold()));
+            }
+        }
+    } else if show_theme_name {
         left_menu_spans.push(Span::styled(format!(" {} ", app.current_theme), Style::default().fg(c_menu)));
     } else {
-        left_menu_spans.push(Span::styled(" t", Style::default().fg(c_hot_key)));
-        left_menu_spans.push(Span::styled("heme", Style::default().fg(c_menu)));
         left_menu_spans.push(Span::raw(" "));
     }
 
     let left_menu = Paragraph::new(Line::from(left_menu_spans))
         .block(Block::default().bg(colors.menu_bg));
 
-    // let left_menu = Paragraph::new(Line::from(vec![
-    //     Span::styled(" t", Style::default().fg(c_hot_key)),
-    //     Span::styled("heme: ", Style::default().fg(c_menu)),
-    //     Span::styled(format!("{}", app.current_theme), Style::default().fg(c_menu).bold()),
-    // ]))
-    //     .bg(colors.menu_bg);
-
     let right_menu = Paragraph::new(Line::from(vec![
-        Span::styled("f", Style::default().fg(c_hot_key)), Span::styled("irst ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
-        Span::styled("l", Style::default().fg(c_hot_key)), Span::styled("ast ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
         Span::styled("↵", Style::default().fg(c_hot_key)), Span::styled(" Info ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
         Span::styled("s", Style::default().fg(c_hot_key)), Span::styled("earch ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
+        Span::styled("t", Style::default().fg(c_hot_key)), Span::styled("heme ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
         Span::styled("q", Style::default().fg(c_hot_key)), Span::styled("uit ", Style::default().fg(c_menu)), Span::styled("| ", Style::default().fg(c_pipe)),
         Span::styled("? ", Style::default().fg(c_hot_key)), Span::styled("", Style::default().fg(c_menu)),
     ]))
@@ -1041,7 +1045,6 @@ fn ui(f: &mut Frame, app: &mut App) {
     }
 }
 
-// Helpers
 fn centered_rect(r: Rect) -> Rect {
     let popup_layout = Layout::vertical([
         Constraint::Fill(1),
