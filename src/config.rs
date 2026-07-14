@@ -12,13 +12,13 @@ pub struct BundledThemes;
 pub struct Config;
 
 impl Config {
-    /// Gets the base directory (~/.xtop)
+    // get base directory (~/.xtop)
     pub fn get_base_dir() -> Option<PathBuf> {
-        // Uses the `dirs` crate to reliably find the home directory across platforms
+        // use the `dirs` crate to find home directory across platforms
         dirs::home_dir().map(|p| p.join(".xtop"))
     }
 
-    /// Gets (and creates if necessary) the themes directory (~/.xtop/themes)
+    // get (and create if needed) the themes directory (~/.xtop/themes)
     pub fn get_theme_dir() -> Option<PathBuf> {
         Self::get_base_dir().map(|p| {
             let theme_path = p.join("themes");
@@ -27,7 +27,7 @@ impl Config {
         })
     }
 
-    /// Writes the embedded themes to disk if the directory is empty
+    // write the embedded themes to ~/.xtop/themes if the directory is empty
     pub fn initialize_themes() -> std::io::Result<()> {
         if let Some(theme_dir) = Self::get_theme_dir() {
             // Check if the directory is empty
@@ -51,12 +51,12 @@ impl Config {
         Ok(())
     }
 
-    /// Gets the path to the configuration file (~/.xtop/xtoprc)
+    // get path to config file (~/.xtop/xtoprc)
     pub fn get_config_path() -> Option<PathBuf> {
         Self::get_base_dir().map(|p| p.join("xtoprc"))
     }
 
-    /// Loads the configuration. Returns the saved theme name, or a default.
+    // load the configuration - return the saved theme name
     pub fn load_config() -> String {
         let mut theme = String::from("Default-Dark"); // The fallback default
 
@@ -76,7 +76,7 @@ impl Config {
         theme
     }
 
-    /// Saves the current configuration to the file
+    // save the current config
     pub fn save_config(theme: &str) {
         if let Some(path) = Self::get_config_path() {
             let content = format!("theme={}\n", theme);
@@ -98,28 +98,6 @@ pub struct UiColors {
 
 impl UiColors {
     pub fn from_theme(theme: &Theme) -> Self {
-        let raw_bg = theme.settings.background.unwrap_or(syntect::highlighting::Color { r: 0, g: 0, b: 0, a: 255 });
-        let raw_fg = theme.settings.foreground.unwrap_or(syntect::highlighting::Color { r: 255, g: 255, b: 255, a: 255 });
-
-        let bg = Color::Rgb(raw_bg.r, raw_bg.g, raw_bg.b);
-        let fg = Color::Rgb(raw_fg.r, raw_fg.g, raw_fg.b);
-
-        // determine luminance
-        let is_dark = (raw_bg.r as u32 + raw_bg.g as u32 + raw_bg.b as u32) < 384;
-
-        let ui_bg = if is_dark {
-            Color::Rgb(raw_bg.r.saturating_add(20), raw_bg.g.saturating_add(20), raw_bg.b.saturating_add(20))
-        } else {
-            Color::Rgb(raw_bg.r.saturating_sub(20), raw_bg.g.saturating_sub(20), raw_bg.b.saturating_sub(20))
-        };
-
-        let selected_bg = if raw_bg.r < 128 {
-            Color::Rgb(raw_bg.r.saturating_add(40), raw_bg.g.saturating_add(40), raw_bg.b.saturating_add(40))
-        } else {
-            Color::Rgb(raw_bg.r.saturating_sub(40), raw_bg.g.saturating_sub(40), raw_bg.b.saturating_sub(40))
-        };
-
-
         let raw_bg = theme.settings.background.unwrap_or(syntect::highlighting::Color { r: 0, g: 0, b: 0, a: 255 });
         let raw_fg = theme.settings.foreground.unwrap_or(syntect::highlighting::Color { r: 255, g: 255, b: 255, a: 255 });
 
@@ -154,11 +132,9 @@ impl UiColors {
             None
         };
 
-        // Extract the accent (Functions/Variables)
         let mut accent = get_theme_color(&["entity.name.function", "variable"])
             .unwrap_or(if is_dark { Color::Rgb(100, 200, 255) } else { Color::Rgb(20, 100, 180) });
 
-        // Extract a new color for Titles (Keywords/Strings/Constants)
         let mut title = get_theme_color(&["keyword", "string", "constant"])
             .unwrap_or(if is_dark { Color::Rgb(200, 200, 100) } else { Color::Rgb(100, 100, 50) });
 
