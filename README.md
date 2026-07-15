@@ -6,8 +6,13 @@ Search/filter by process name or process id. Has theme support, update notificat
 <img width="852" height="700" alt="xtop2" src="https://github.com/user-attachments/assets/5c82030b-424c-44fc-a1c2-f7c4948340e0" />
 <img width="852" height="700" alt="xtop3" src="https://github.com/user-attachments/assets/b60d30b8-d096-40d6-bea0-f51e20032b22" />
 
-## Build
+## Download
+For macOS and Linux (.deb) binaries, go to
+````
+https://github.com/mabognar/xtop/releases/latest
+````
 
+## Build
 In suitable directory, run
 ```
 git clone https://github.com/mabognar/xtop
