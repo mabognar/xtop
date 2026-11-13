@@ -1,7 +1,7 @@
 # xtop
-System monitor for the terminal. Fast, informative, and easy to use. One-key sorting of processes by process id, name, 
+System monitor for the terminal. Fast, informative, and easy to use. Sorting of processes by id, name, 
 cpu usage, and memory usage. 
-Search/filter by process name or process id. Has theme support, update notifications. 
+Search/filter by process name or id. Theme support, update notifications. 
 Works in Linux, macOS, Windows, and BSD.
 
 <img width="852" height="700" alt="xtop1" src="https://github.com/user-attachments/assets/d7ffbf4d-014a-41b6-9596-10d21f44acc0" />
