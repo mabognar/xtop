@@ -1,11 +1,11 @@
 [package]
 name = "xtop"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 license = "MIT"
 keywords = ["system", "monitor", "information"]
 categories = ["command-line-utilities"]
-description = "System monitor written in Rust using terminal user interface (TUI). Fast, efficient, informative, and easy to use."
+description = "Terminal system monitor. Informative and easy to use."
 readme = true
 documentation = "https://docs.rs/xtop"
 repository = "https://github.com/mabognar/xtop"
@@ -28,7 +28,7 @@ copyright = "2026, Matthew Bognar"
 license-file = ["LICENSE", "4"]
 depends = "$auto"
 extended-description = """
-Terminal-based system monitor written in Rust. Fast, efficient, informative, and easy to use.
+Terminal system monitor. Informative and easy to use.
 """
 section = "utility"
 priority = "optional"

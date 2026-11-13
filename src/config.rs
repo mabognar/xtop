@@ -12,10 +12,14 @@ pub struct BundledThemes;
 pub struct Config;
 
 impl Config {
+    // pub fn get_base_dir() -> Option<PathBuf> {
+    //     // use the `dirs` crate to find home directory across platforms
+    //     dirs::home_dir().map(|p| p.join(".xtop"))
+    // }
+
     // get base directory (~/.xtop)
     pub fn get_base_dir() -> Option<PathBuf> {
-        // use the `dirs` crate to find home directory across platforms
-        dirs::home_dir().map(|p| p.join(".xtop"))
+        dirs::home_dir().map(|p| p.join(".config").join("xtop"))
     }
 
     // get (and create if needed) the themes directory (~/.xtop/themes)
