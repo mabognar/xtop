@@ -81,16 +81,21 @@ impl App {
         let (update_tx, update_rx) = mpsc::channel();
         thread::spawn(move || {
             let current_version = env!("CARGO_PKG_VERSION");
-            if let Ok(resp) = ureq::get("https://api.github.com/repos/mabognar/xtop/releases/latest")
-                .set("User-Agent", "xtop-update-checker")
-                .timeout(Duration::from_secs(3))
+            let config = ureq::Agent::config_builder()
+                .timeout_global(Some(Duration::from_secs(3)))
+                .build();
+            let agent: ureq::Agent = config.into();
+            if let Ok(mut resp) = agent.get("https://api.github.com/repos/mabognar/xtop/releases/latest")
+                .header("User-Agent", "xtop-update-checker")
                 .call()
             {
-                if let Ok(json) = resp.into_json::<serde_json::Value>() {
-                    if let Some(tag) = json["tag_name"].as_str() {
-                        let latest_version = tag.trim_start_matches('v');
-                        if latest_version != current_version {
-                            let _ = update_tx.send(latest_version.to_string());
+                if let Ok(body) = resp.body_mut().read_to_string() {
+                    if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&body.into_bytes()) {
+                        if let Some(tag) = json["tag_name"].as_str() {
+                            let latest_version = tag.trim_start_matches('v');
+                            if latest_version != current_version {
+                                let _ = update_tx.send(latest_version.to_string());
+                            }
                         }
                     }
                 }
@@ -98,8 +103,8 @@ impl App {
         });
 
         Self {
-            s: System::new_all(),
-            networks: Networks::new_with_refreshed_list(),
+            s: System::new_all().unwrap(),
+            networks: Networks::new_with_refreshed_list().unwrap(),
             update_freq: 1000,
             table_state,
             filter_text: String::new(),

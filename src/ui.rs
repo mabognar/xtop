@@ -1,4 +1,4 @@
-use default_net::get_default_interface;
+use netdev::get_default_interface;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     prelude::{Line, Style, Stylize},
@@ -133,7 +133,7 @@ pub fn ui(f: &mut Frame, app: &mut crate::App) {
     for cpu in app.s.cpus().iter() {
         rows.push(Row::new(vec![
             Cell::from(Line::from(cpu.name().to_string()).right_aligned()),
-            Cell::from(Line::from(format!("{:.1}%", cpu.cpu_usage())).right_aligned()),
+            Cell::from(Line::from(format!("{:.1}%", cpu.usage())).right_aligned()),
         ]));
     }
 
@@ -163,7 +163,7 @@ pub fn ui(f: &mut Frame, app: &mut crate::App) {
                     Line::from(vec![
                         Span::styled(" Load Ave: ", Style::default().fg(colors.accent)),
                         Span::styled(
-                            format!("{:.2} {:.2} {:.2} ", loadavg.one, loadavg.five, loadavg.fifteen),
+                            format!("{:.2} {:.2} {:.2} ", loadavg.as_ref().unwrap().one, loadavg.as_ref().unwrap().five, loadavg.as_ref().unwrap().fifteen),
                             Style::default().fg(c_menu_mut),
                         ),
                     ])
@@ -181,7 +181,7 @@ pub fn ui(f: &mut Frame, app: &mut crate::App) {
         area_vec.push(Rect::new(15, (i + 1) as u16, left_panel[0].width - 17, 1));
 
         if (i as u16) < (left_panel[0].height - 2) {
-            let cpuusage = app.s.cpus().get(i - 1).unwrap().cpu_usage();
+            let cpuusage = app.s.cpus().get(i - 1).unwrap().usage();
             let gauge = LineGauge::default()
                 .label("")
                 .filled_style(Style::new().fg(Color::Rgb(
@@ -299,8 +299,10 @@ pub fn ui(f: &mut Frame, app: &mut crate::App) {
     let mut iface_rec = 0;
     let mut iface_tra = 0;
 
+    let osstr_iface_name = std::ffi::OsString::from(iface_name.clone());
+
     // Use the networks data stored in app state
-    if let Some(net_data) = app.networks.get(&iface_name) {
+    if let Some(net_data) = app.networks.get(&osstr_iface_name) {
         // Calculate per second rate based on update frequency
         let freq_multiplier = 1000.0 / (app.update_freq as f64);
         iface_rec = (net_data.received() as f64 * freq_multiplier) as u64;
@@ -390,7 +392,7 @@ pub fn ui(f: &mut Frame, app: &mut crate::App) {
         process_list.reverse();
     }
 
-    let uptime_secs: u64 = System::uptime();
+    let uptime_secs: u64 = System::uptime().unwrap();
     let d = uptime_secs / 86400;
     let h = (uptime_secs / 3600) % 24;
     let m = (uptime_secs / 60) % 60;
@@ -501,7 +503,7 @@ pub fn ui(f: &mut Frame, app: &mut crate::App) {
         let pid = process_list[selected_process].pid();
         let user_name = process_list[selected_process]
             .user_id()
-            .and_then(|uid| users.get_user_by_id(uid))
+            .and_then(|uid| users.as_ref().unwrap().get_user_by_id(uid))
             .map(|user| user.name())
             .unwrap_or("Unknown");
 
