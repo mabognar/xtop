@@ -1,4 +1,3 @@
-use netdev::get_default_interface;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     prelude::{Line, Style, Stylize},
@@ -295,11 +294,6 @@ pub fn ui(f: &mut Frame, app: &mut crate::App) {
     ////////////////////////////////////////////////////////////////////////////////////////
     // Network
     ////////////////////////////////////////////////////////////////////////////////////////
-
-    let (iface_name, iface_ip) = match get_default_interface() {
-        Ok(iface) => (iface.name, format!("{:?}", iface.ipv4)),
-        Err(_) => ("Unknown".to_string(), "Unknown".to_string()),
-    };
 
     let mut iface_rec = 0;
     let mut iface_tra = 0;

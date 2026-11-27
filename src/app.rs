@@ -4,7 +4,7 @@ use std::io;
 use std::time::{Duration, Instant};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
-use sysinfo::{Networks, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind, Users};
+use sysinfo::{Networks, ProcessRefreshKind, ProcessesToUpdate, System, Users};
 use syntect::highlighting::ThemeSet;
 use ratatui::prelude::Color;
 use crate::ui::ui;
