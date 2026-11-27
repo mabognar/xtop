@@ -1,4 +1,4 @@
-use default_net::get_default_interface;
+use netdev::get_default_interface;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     prelude::{Line, Style, Stylize},
@@ -8,7 +8,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Cell, Clear, LineGauge, Paragraph, Row, Table},
     Frame,
 };
-use sysinfo::{System, Users};
+use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
 pub fn ui(f: &mut Frame, app: &mut crate::App) {
     let colors = app.ui_colors;
@@ -133,11 +133,16 @@ pub fn ui(f: &mut Frame, app: &mut crate::App) {
     for cpu in app.s.cpus().iter() {
         rows.push(Row::new(vec![
             Cell::from(Line::from(cpu.name().to_string()).right_aligned()),
-            Cell::from(Line::from(format!("{:.1}%", cpu.cpu_usage())).right_aligned()),
+            Cell::from(Line::from(format!("{:.1}%", cpu.usage())).right_aligned()),
         ]));
     }
 
-    let loadavg = System::load_average();
+    // let loadavg = System::load_average();
+    let loadavg = System::load_average().unwrap_or(sysinfo::LoadAvg {
+        one: 0.0,
+        five: 0.0,
+        fifteen: 0.0,
+    });
 
     let table = Table::new(
         rows,
@@ -181,7 +186,7 @@ pub fn ui(f: &mut Frame, app: &mut crate::App) {
         area_vec.push(Rect::new(15, (i + 1) as u16, left_panel[0].width - 17, 1));
 
         if (i as u16) < (left_panel[0].height - 2) {
-            let cpuusage = app.s.cpus().get(i - 1).unwrap().cpu_usage();
+            let cpuusage = app.s.cpus().get(i - 1).unwrap().usage();
             let gauge = LineGauge::default()
                 .label("")
                 .filled_style(Style::new().fg(Color::Rgb(
@@ -300,8 +305,7 @@ pub fn ui(f: &mut Frame, app: &mut crate::App) {
     let mut iface_tra = 0;
 
     // Use the networks data stored in app state
-    if let Some(net_data) = app.networks.get(&iface_name) {
-        // Calculate per second rate based on update frequency
+    if let Some(net_data) = app.networks.get(std::ffi::OsStr::new(&app.iface_name)) {
         let freq_multiplier = 1000.0 / (app.update_freq as f64);
         iface_rec = (net_data.received() as f64 * freq_multiplier) as u64;
         iface_tra = (net_data.transmitted() as f64 * freq_multiplier) as u64;
@@ -310,11 +314,11 @@ pub fn ui(f: &mut Frame, app: &mut crate::App) {
     let net_rows = vec![
         Row::new(vec![
             Cell::from("Inter: "),
-            Cell::from(Line::from(iface_name).right_aligned()),
+            Cell::from(Line::from(app.iface_name.as_str()).right_aligned()),
         ]),
         Row::new(vec![
             Cell::from("IPv4: "),
-            Cell::from(Line::from(iface_ip).right_aligned()),
+            Cell::from(Line::from(app.iface_ip.as_str()).right_aligned()),
         ]),
         Row::new(vec![
             Cell::from("Rcvd: "),
@@ -390,7 +394,8 @@ pub fn ui(f: &mut Frame, app: &mut crate::App) {
         process_list.reverse();
     }
 
-    let uptime_secs: u64 = System::uptime();
+    // let uptime_secs: u64 = System::uptime();
+    let uptime_secs: u64 = System::uptime().unwrap_or(0);
     let d = uptime_secs / 86400;
     let h = (uptime_secs / 3600) % 24;
     let m = (uptime_secs / 60) % 60;
@@ -492,61 +497,132 @@ pub fn ui(f: &mut Frame, app: &mut crate::App) {
         app.process_info = 0;
     }
 
+    // if app.table_state.selected().is_some() && app.process_info == 1 {
+    //     let users = Users::new_with_refreshed_list().ok();
+    //
+    //     let selected_process = app.table_state.selected().unwrap();
+    //     let (hours, minutes, seconds) = s_to_hms(process_list[selected_process].run_time());
+    //
+    //     let pid = process_list[selected_process].pid();
+    //     let user_name = process_list[selected_process]
+    //         .user_id()
+    //         .and_then(|uid| users.as_ref()?.get_user_by_id(uid))
+    //         .map(|user| user.name())
+    //         .unwrap_or("Unknown");
+    //
+    //     let path = match process_list[selected_process].exe() {
+    //         Some(p) => p.to_str().unwrap_or("Unknown"),
+    //         None => "Unknown",
+    //     };
+    //
+    //     let selected_processes_rows = vec![
+    //         Row::new(vec![Cell::from("PID: "), Cell::from(pid.to_string())]),
+    //         Row::new(vec![Cell::from("User Name: "), Cell::from(user_name)]),
+    //         Row::new(vec![Cell::from("Path: "), Cell::from(path)]),
+    //         Row::new(vec![
+    //             Cell::from("Command: "),
+    //             Cell::from(format!("{:?}", process_list[selected_process].cmd())),
+    //         ]),
+    //         Row::new(vec![
+    //             Cell::from("Run Time: "),
+    //             Cell::from(format!("{:?}:{:02}:{:02}", hours, minutes, seconds)),
+    //         ]),
+    //     ];
+    //
+    //     let selected_process_table = Table::new(
+    //         selected_processes_rows,
+    //         [Constraint::Fill(1), Constraint::Fill(3)],
+    //     )
+    //         .row_highlight_style(Style::default().bg(Color::Rgb(100, 100, 50))) // Visual cue for selection
+    //         .block(
+    //             Block::default()
+    //                 .title(Line::from(" Process Details ").style(Style::default().bold()))
+    //                 .borders(Borders::ALL)
+    //                 .border_style(c_border)
+    //                 .border_type(BorderType::Rounded)
+    //                 .title_style(c_title)
+    //                 .title_bottom(Line::from(vec![
+    //                     Span::styled(" ↵ ", Style::default().fg(c_hot_key)),
+    //                     Span::styled("Close ", Style::default().fg(c_menu)),
+    //                 ]))
+    //                 .bg(c_bg)
+    //                 .fg(c_fg),
+    //         );
+    //
+    //     f.render_widget(selected_process_table, right_panel[2]);
+    // }
     if app.table_state.selected().is_some() && app.process_info == 1 {
-        let users = Users::new_with_refreshed_list();
+        let selected_pid = app
+            .table_state
+            .selected()
+            .and_then(|idx| process_list.get(idx))
+            .map(|p| p.pid());
 
-        let selected_process = app.table_state.selected().unwrap();
-        let (hours, minutes, seconds) = s_to_hms(process_list[selected_process].run_time());
+        // Release the immutable borrow of `app.s` before refreshing the selected PID
+        drop(process_list);
 
-        let pid = process_list[selected_process].pid();
-        let user_name = process_list[selected_process]
-            .user_id()
-            .and_then(|uid| users.get_user_by_id(uid))
-            .map(|user| user.name())
-            .unwrap_or("Unknown");
-
-        let path = match process_list[selected_process].exe() {
-            Some(p) => p.to_str().unwrap_or("Unknown"),
-            None => "Unknown",
-        };
-
-        let selected_processes_rows = vec![
-            Row::new(vec![Cell::from("PID: "), Cell::from(pid.to_string())]),
-            Row::new(vec![Cell::from("User Name: "), Cell::from(user_name)]),
-            Row::new(vec![Cell::from("Path: "), Cell::from(path)]),
-            Row::new(vec![
-                Cell::from("Command: "),
-                Cell::from(format!("{:?}", process_list[selected_process].cmd())),
-            ]),
-            Row::new(vec![
-                Cell::from("Run Time: "),
-                Cell::from(format!("{:?}:{:02}:{:02}", hours, minutes, seconds)),
-            ]),
-        ];
-
-        let selected_process_table = Table::new(
-            selected_processes_rows,
-            [Constraint::Fill(1), Constraint::Fill(3)],
-        )
-            .row_highlight_style(Style::default().bg(Color::Rgb(100, 100, 50))) // Visual cue for selection
-            .block(
-                Block::default()
-                    .title(Line::from(" Process Details ").style(Style::default().bold()))
-                    .borders(Borders::ALL)
-                    .border_style(c_border)
-                    .border_type(BorderType::Rounded)
-                    .title_style(c_title)
-                    .title_bottom(Line::from(vec![
-                        Span::styled(" ↵ ", Style::default().fg(c_hot_key)),
-                        Span::styled("Close ", Style::default().fg(c_menu)),
-                    ]))
-                    .bg(c_bg)
-                    .fg(c_fg),
+        if let Some(pid) = selected_pid {
+            app.s.refresh_processes_specifics(
+                ProcessesToUpdate::Some(&[pid]),
+                false,
+                ProcessRefreshKind::nothing()
+                    .with_user(UpdateKind::OnlyIfNotSet)
+                    .with_exe(UpdateKind::OnlyIfNotSet)
+                    .with_cmd(UpdateKind::OnlyIfNotSet),
             );
 
-        f.render_widget(selected_process_table, right_panel[2]);
-    }
+            if let Some(proc) = app.s.process(pid) {
+                let (hours, minutes, seconds) = s_to_hms(proc.run_time());
 
+                let user_name = proc
+                    .user_id()
+                    .and_then(|uid| app.users.as_ref()?.get_user_by_id(uid))
+                    .map(|user| user.name())
+                    .unwrap_or("Unknown");
+
+                let path = match proc.exe() {
+                    Some(p) => p.to_str().unwrap_or("Unknown"),
+                    None => "Unknown",
+                };
+
+                let selected_processes_rows = vec![
+                    Row::new(vec![Cell::from("PID: "), Cell::from(pid.to_string())]),
+                    Row::new(vec![Cell::from("User Name: "), Cell::from(user_name)]),
+                    Row::new(vec![Cell::from("Path: "), Cell::from(path)]),
+                    Row::new(vec![
+                        Cell::from("Command: "),
+                        Cell::from(format!("{:?}", proc.cmd())),
+                    ]),
+                    Row::new(vec![
+                        Cell::from("Run Time: "),
+                        Cell::from(format!("{:?}:{:02}:{:02}", hours, minutes, seconds)),
+                    ]),
+                ];
+
+                let selected_process_table = Table::new(
+                    selected_processes_rows,
+                    [Constraint::Fill(1), Constraint::Fill(3)],
+                )
+                    .row_highlight_style(Style::default().bg(Color::Rgb(100, 100, 50)))
+                    .block(
+                        Block::default()
+                            .title(Line::from(" Process Details ").style(Style::default().bold()))
+                            .borders(Borders::ALL)
+                            .border_style(c_border)
+                            .border_type(BorderType::Rounded)
+                            .title_style(c_title)
+                            .title_bottom(Line::from(vec![
+                                Span::styled(" ↵ ", Style::default().fg(c_hot_key)),
+                                Span::styled("Close ", Style::default().fg(c_menu)),
+                            ]))
+                            .bg(c_bg)
+                            .fg(c_fg),
+                    );
+
+                f.render_widget(selected_process_table, right_panel[2]);
+            }
+        }
+    }
 
     // bottom menu
     let menu_layout = Layout::default()

@@ -4,14 +4,18 @@ use std::io;
 use std::time::{Duration, Instant};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
-use sysinfo::{Networks, ProcessRefreshKind, ProcessesToUpdate, System};
+use sysinfo::{Networks, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind, Users};
 use syntect::highlighting::ThemeSet;
 use ratatui::prelude::Color;
 use crate::ui::ui;
+use netdev::get_default_interface;
 
 pub struct App {
     pub(crate) s: System,
     pub(crate) networks: Networks,
+    pub(crate) users: Option<Users>,
+    pub(crate) iface_name: String,
+    pub(crate) iface_ip: String,
     pub(crate) update_freq: u64,
     pub(crate) table_state: TableState,
     pub(crate) filter_text: String,
@@ -97,9 +101,18 @@ impl App {
             }
         });
 
+        let (iface_name, iface_ip) = match get_default_interface() {
+            Ok(iface) => (iface.name, format!("{:?}", iface.ipv4)),
+            Err(_) => ("Unknown".to_string(), "Unknown".to_string()),
+        };
+
         Self {
-            s: System::new_all(),
-            networks: Networks::new_with_refreshed_list(),
+            s: System::new_all().expect("Failed to initialize system info"),
+            networks: Networks::new_with_refreshed_list()
+                .expect("Failed to initialize network info"),
+            users: Users::new_with_refreshed_list().ok(),
+            iface_name,
+            iface_ip,
             update_freq: 1000,
             table_state,
             filter_text: String::new(),
@@ -143,159 +156,95 @@ impl App {
 
 pub fn main_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<()> {
 
+    let mut last_refresh = Instant::now() - Duration::from_millis(app.update_freq);
+
     loop {
-
-        if let Some(rx) = &app.update_rx {
-            if let Ok(version) = rx.try_recv() {
-                app.update_version = Some(version.clone());
-                app.show_notification(format!("Press u to update xtop to {}", version));
-                app.update_rx = None; // Stop checking once we receive a result
-            }
+        if last_refresh.elapsed() >= Duration::from_millis(app.update_freq) {
+            app.s.refresh_cpu_usage();
+            app.s.refresh_memory();
+            // app.s.refresh_processes_specifics(
+            //     ProcessesToUpdate::All,
+            //     true,
+            //     ProcessRefreshKind::nothing()
+            //         .with_cpu()
+            //         .with_memory()
+            //         .without_tasks(),
+            // );
+            app.s.refresh_processes_specifics(
+                ProcessesToUpdate::All,
+                true,
+                ProcessRefreshKind::nothing()
+                    .with_cpu()
+                    .with_memory()
+                    .without_tasks(),
+            );
+            app.networks.refresh(false); // false = don't re-enumerate all interfaces every tick
+            last_refresh = Instant::now();
         }
-
-        // refresh system data before drawing
-        app.s.refresh_cpu_usage();
-        app.s.refresh_memory();
-        app.s.refresh_processes_specifics(
-            ProcessesToUpdate::All,
-            true,
-            ProcessRefreshKind::everything().without_tasks(),
-        );
-
-        // refresh network data
-        app.networks.refresh(true);
 
         terminal.draw(|f| ui(f, app)).expect("xtop panic");
 
-        if event::poll(Duration::from_millis(app.update_freq))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    match app.editing {
-                        false => match key.code {
-                            KeyCode::Char('q') => return Ok(()),
-                            KeyCode::Char('t') => app.cycle_theme(),
-                            KeyCode::Char('s') => {
-                                app.editing = true;
-                                app.process_info = 0;
-                                app.cursor_position = app.filter_text.chars().count();
-                            }
-                            KeyCode::Char('f') => app.table_state.select_first(),
-                            KeyCode::Char('l') => app.table_state.select_last(),
-                            KeyCode::Up => {
-                                let i = match app.table_state.selected() {
-                                    Some(i) => if i == 0 { 0 } else { i - 1 },
-                                    None => 0,
-                                };
-                                app.table_state.select(Some(i));
-                            }
-                            KeyCode::Down => {
-                                let count = app.s.processes().len();
-                                let i = match app.table_state.selected() {
-                                    Some(i) => if i >= count - 1 { count - 1 } else { i + 1 },
-                                    None => 0,
-                                };
-                                app.table_state.select(Some(i));
-                            }
-                            KeyCode::Char('-') => {
-                                if app.update_freq > 200 {
-                                    app.update_freq -= 200;
+        let timeout = Duration::from_millis(app.update_freq)
+            .saturating_sub(last_refresh.elapsed());
+
+        if event::poll(timeout)? {
+            if event::poll(Duration::from_millis(app.update_freq))? {
+                if let Event::Key(key) = event::read()? {
+                    if key.kind == KeyEventKind::Press {
+                        match app.editing {
+                            false => match key.code {
+                                KeyCode::Char('q') => return Ok(()),
+                                KeyCode::Char('t') => app.cycle_theme(),
+                                KeyCode::Char('s') => {
+                                    app.editing = true;
+                                    app.process_info = 0;
+                                    app.cursor_position = app.filter_text.chars().count();
                                 }
-                            }
-                            KeyCode::Char('+') => {
-                                if app.update_freq < 3000 {
-                                    app.update_freq += 200;
-                                }
-                            }
-                            KeyCode::Char('p') => {
-                                if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) {
-                                    // move up (^p)
+                                KeyCode::Char('f') => app.table_state.select_first(),
+                                KeyCode::Char('l') => app.table_state.select_last(),
+                                KeyCode::Up => {
                                     let i = match app.table_state.selected() {
                                         Some(i) => if i == 0 { 0 } else { i - 1 },
                                         None => 0,
                                     };
                                     app.table_state.select(Some(i));
-                                } else {
-                                    // sort by pid ('p')
-                                    if app.sort_col == app.current_col {
-                                        app.reverse = !app.reverse;
-                                    }
-                                    app.sort_col = 0;
                                 }
-                            }
-                            KeyCode::Char('n') => {
-                                if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) {
-                                    // move down (^n)
+                                KeyCode::Down => {
                                     let count = app.s.processes().len();
                                     let i = match app.table_state.selected() {
                                         Some(i) => if i >= count - 1 { count - 1 } else { i + 1 },
                                         None => 0,
                                     };
                                     app.table_state.select(Some(i));
-                                } else {
-                                    // sort by name ('n')
-                                    if app.sort_col == app.current_col {
-                                        app.reverse = !app.reverse;
+                                }
+                                KeyCode::Char('-') => {
+                                    if app.update_freq > 200 {
+                                        app.update_freq -= 200;
                                     }
-                                    app.sort_col = 1;
                                 }
-                            }
-                            KeyCode::Char('m') => {
-                                if app.sort_col == app.current_col {
-                                    app.reverse = !app.reverse;
+                                KeyCode::Char('+') => {
+                                    if app.update_freq < 3000 {
+                                        app.update_freq += 200;
+                                    }
                                 }
-                                app.sort_col = 2;
-                            }
-                            KeyCode::Char('c') => {
-                                if app.sort_col == app.current_col {
-                                    app.reverse = !app.reverse;
-                                }
-                                app.sort_col = 3;
-                            }
-                            KeyCode::Char('?') => {
-                                app.show_popup = !app.show_popup;
-                            }
-                            KeyCode::Enter => {
-                                if app.table_state.selected().is_some() {
-                                    app.process_info = if app.process_info == 0 { 1 } else { 0 };
-                                }
-                            }
-                            KeyCode::Char('u') => {
-                                if app.update_version.is_some() {
-                                    let _ = webbrowser::open("https://github.com/mabognar/xtop/releases/latest");
-                                    app.show_notification(String::from("Opened browser for update"));
-                                } else {
-                                    app.show_notification(String::from("No updates available"));
-                                }
-                            }
-                            _ => {}
-                        },
-
-                        true => match key.code {
-                            KeyCode::Esc => {
-                                app.editing = false;
-                                app.filter_text.clear();
-                                app.cursor_position = 0;
-                            }
-                            KeyCode::Enter => {
-                                if app.table_state.selected().is_some() {
-                                    app.process_info = if app.process_info == 0 { 1 } else { 0 };
-                                }
-                            }
-                            KeyCode::Char(c) => {
-                                // Handle Ctrl shortcuts
-                                if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) {
-                                    if c == 'b' && app.cursor_position > 0 {
-                                        app.cursor_position -= 1;
-                                    } else if c == 'f' && app.cursor_position < app.filter_text.chars().count() {
-                                        app.cursor_position += 1;
-                                    } else if c == 'p' {
+                                KeyCode::Char('p') => {
+                                    if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) {
                                         // move up (^p)
                                         let i = match app.table_state.selected() {
                                             Some(i) => if i == 0 { 0 } else { i - 1 },
                                             None => 0,
                                         };
                                         app.table_state.select(Some(i));
-                                    } else if c == 'n' {
+                                    } else {
+                                        // sort by pid ('p')
+                                        if app.sort_col == app.current_col {
+                                            app.reverse = !app.reverse;
+                                        }
+                                        app.sort_col = 0;
+                                    }
+                                }
+                                KeyCode::Char('n') => {
+                                    if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) {
                                         // move down (^n)
                                         let count = app.s.processes().len();
                                         let i = match app.table_state.selected() {
@@ -303,78 +252,152 @@ pub fn main_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::R
                                             None => 0,
                                         };
                                         app.table_state.select(Some(i));
+                                    } else {
+                                        // sort by name ('n')
+                                        if app.sort_col == app.current_col {
+                                            app.reverse = !app.reverse;
+                                        }
+                                        app.sort_col = 1;
                                     }
                                 }
-                                // standard typing
-                                else if !key.modifiers.intersects(crossterm::event::KeyModifiers::CONTROL | crossterm::event::KeyModifiers::ALT) {
-                                    let mut chars: Vec<char> = app.filter_text.chars().collect();
-                                    chars.insert(app.cursor_position, c);
-                                    app.filter_text = chars.into_iter().collect();
-                                    app.cursor_position += 1;
+                                KeyCode::Char('m') => {
+                                    if app.sort_col == app.current_col {
+                                        app.reverse = !app.reverse;
+                                    }
+                                    app.sort_col = 2;
+                                }
+                                KeyCode::Char('c') => {
+                                    if app.sort_col == app.current_col {
+                                        app.reverse = !app.reverse;
+                                    }
+                                    app.sort_col = 3;
+                                }
+                                KeyCode::Char('?') => {
+                                    app.show_popup = !app.show_popup;
+                                }
+                                KeyCode::Enter => {
+                                    if app.table_state.selected().is_some() {
+                                        app.process_info = if app.process_info == 0 { 1 } else { 0 };
+                                    }
+                                }
+                                KeyCode::Char('u') => {
+                                    if app.update_version.is_some() {
+                                        let _ = webbrowser::open("https://github.com/mabognar/xtop/releases/latest");
+                                        app.show_notification(String::from("Opened browser for update"));
+                                    } else {
+                                        app.show_notification(String::from("No updates available"));
+                                    }
+                                }
+                                _ => {}
+                            },
 
-                                    if app.filter_text.is_empty() {
-                                        app.process_info = 0;
-                                    }
-                                }
-                            }
-                            KeyCode::Backspace => {
-                                if app.filter_text.is_empty() {
+                            true => match key.code {
+                                KeyCode::Esc => {
                                     app.editing = false;
-                                    app.process_info = 0;
+                                    app.filter_text.clear();
                                     app.cursor_position = 0;
-                                } else if app.cursor_position > 0 {
-                                    let mut chars: Vec<char> = app.filter_text.chars().collect();
-                                    app.cursor_position -= 1;
-                                    chars.remove(app.cursor_position);
-                                    app.filter_text = chars.into_iter().collect();
-
-                                    if app.filter_text.is_empty() {
-                                        app.process_info = 0;
+                                }
+                                KeyCode::Enter => {
+                                    if app.table_state.selected().is_some() {
+                                        app.process_info = if app.process_info == 0 { 1 } else { 0 };
                                     }
                                 }
-                            }
-                            KeyCode::Delete => {
-                                if app.cursor_position < app.filter_text.chars().count() {
-                                    let mut chars: Vec<char> = app.filter_text.chars().collect();
-                                    chars.remove(app.cursor_position);
-                                    app.filter_text = chars.into_iter().collect();
+                                KeyCode::Char(c) => {
+                                    // Handle Ctrl shortcuts
+                                    if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) {
+                                        if c == 'b' && app.cursor_position > 0 {
+                                            app.cursor_position -= 1;
+                                        } else if c == 'f' && app.cursor_position < app.filter_text.chars().count() {
+                                            app.cursor_position += 1;
+                                        } else if c == 'p' {
+                                            // move up (^p)
+                                            let i = match app.table_state.selected() {
+                                                Some(i) => if i == 0 { 0 } else { i - 1 },
+                                                None => 0,
+                                            };
+                                            app.table_state.select(Some(i));
+                                        } else if c == 'n' {
+                                            // move down (^n)
+                                            let count = app.s.processes().len();
+                                            let i = match app.table_state.selected() {
+                                                Some(i) => if i >= count - 1 { count - 1 } else { i + 1 },
+                                                None => 0,
+                                            };
+                                            app.table_state.select(Some(i));
+                                        }
+                                    }
+                                    // standard typing
+                                    else if !key.modifiers.intersects(crossterm::event::KeyModifiers::CONTROL | crossterm::event::KeyModifiers::ALT) {
+                                        let mut chars: Vec<char> = app.filter_text.chars().collect();
+                                        chars.insert(app.cursor_position, c);
+                                        app.filter_text = chars.into_iter().collect();
+                                        app.cursor_position += 1;
 
-                                    if app.filter_text.is_empty() {
-                                        app.process_info = 0;
+                                        if app.filter_text.is_empty() {
+                                            app.process_info = 0;
+                                        }
                                     }
                                 }
-                            }
-                            KeyCode::Left => {
-                                if app.cursor_position > 0 {
-                                    app.cursor_position -= 1;
+                                KeyCode::Backspace => {
+                                    if app.filter_text.is_empty() {
+                                        app.editing = false;
+                                        app.process_info = 0;
+                                        app.cursor_position = 0;
+                                    } else if app.cursor_position > 0 {
+                                        let mut chars: Vec<char> = app.filter_text.chars().collect();
+                                        app.cursor_position -= 1;
+                                        chars.remove(app.cursor_position);
+                                        app.filter_text = chars.into_iter().collect();
+
+                                        if app.filter_text.is_empty() {
+                                            app.process_info = 0;
+                                        }
+                                    }
                                 }
-                            }
-                            KeyCode::Right => {
-                                if app.cursor_position < app.filter_text.chars().count() {
-                                    app.cursor_position += 1;
+                                KeyCode::Delete => {
+                                    if app.cursor_position < app.filter_text.chars().count() {
+                                        let mut chars: Vec<char> = app.filter_text.chars().collect();
+                                        chars.remove(app.cursor_position);
+                                        app.filter_text = chars.into_iter().collect();
+
+                                        if app.filter_text.is_empty() {
+                                            app.process_info = 0;
+                                        }
+                                    }
                                 }
-                            }
-                            KeyCode::Up => {
-                                let i = match app.table_state.selected() {
-                                    Some(i) => if i == 0 { 0 } else { i - 1 },
-                                    None => 0,
-                                };
-                                app.table_state.select(Some(i));
-                            }
-                            KeyCode::Down => {
-                                let count = app.s.processes().len();
-                                let i = match app.table_state.selected() {
-                                    Some(i) => if i >= count - 1 { count - 1 } else { i + 1 },
-                                    None => 0,
-                                };
-                                app.table_state.select(Some(i));
-                            }
-                            _ => {}
-                        },
+                                KeyCode::Left => {
+                                    if app.cursor_position > 0 {
+                                        app.cursor_position -= 1;
+                                    }
+                                }
+                                KeyCode::Right => {
+                                    if app.cursor_position < app.filter_text.chars().count() {
+                                        app.cursor_position += 1;
+                                    }
+                                }
+                                KeyCode::Up => {
+                                    let i = match app.table_state.selected() {
+                                        Some(i) => if i == 0 { 0 } else { i - 1 },
+                                        None => 0,
+                                    };
+                                    app.table_state.select(Some(i));
+                                }
+                                KeyCode::Down => {
+                                    let count = app.s.processes().len();
+                                    let i = match app.table_state.selected() {
+                                        Some(i) => if i >= count - 1 { count - 1 } else { i + 1 },
+                                        None => 0,
+                                    };
+                                    app.table_state.select(Some(i));
+                                }
+                                _ => {}
+                            },
+                        }
                     }
                 }
             }
         }
     }
 }
+
 
